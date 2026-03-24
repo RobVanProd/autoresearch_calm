@@ -182,7 +182,7 @@ class GPT(nn.Module):
         self.chunk_decode_proj = nn.Linear(config.n_embd, self.chunk_size * config.n_embd, bias=False)
         self.chunk_pre_norm = nn.LayerNorm(config.n_embd)
         self.chunk_interface = nn.Linear(config.n_embd, config.n_embd, bias=True)
-        self.chunk_interface_scale = nn.Parameter(torch.tensor(0.05))
+        self.chunk_interface_scale = nn.Parameter(torch.full((config.n_embd,), 0.05))
         self.shortcut_scale = nn.Parameter(torch.full((self.chunk_size,), 0.1))
         self.resid_lambdas = nn.Parameter(torch.ones(config.n_layer))
         self.x0_lambdas = nn.Parameter(torch.zeros(config.n_layer))
