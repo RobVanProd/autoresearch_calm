@@ -179,7 +179,7 @@ class GPT(nn.Module):
         self.chunk_gate = nn.Linear(self.chunk_size * config.n_embd, config.n_embd, bias=True)
         self.chunk_resid = nn.Linear(config.n_embd, config.n_embd, bias=False)
         self.chunk_decode_offsets = nn.Parameter(torch.zeros(self.chunk_size, config.n_embd))
-        self.shortcut_scale = nn.Parameter(torch.tensor(0.1))
+        self.shortcut_scale = nn.Parameter(torch.full((self.chunk_size,), 0.1))
         self.resid_lambdas = nn.Parameter(torch.ones(config.n_layer))
         self.x0_lambdas = nn.Parameter(torch.zeros(config.n_layer))
         # Value embeddings
@@ -363,7 +363,9 @@ class GPT(nn.Module):
 
         softcap = 15
         logits = self.lm_head(x[:, :, None, :] + self.chunk_decode_offsets[None, None, :, :])
-        logits = logits.view(B, T, -1) + self.shortcut_scale * self.token_shortcut_head(token_x).view(B, T, -1)
+        shortcut_logits = self.token_shortcut_head(token_x).view(B, chunk_T, self.chunk_size, -1)
+        logits = logits.view(B, chunk_T, self.chunk_size, -1) + self.shortcut_scale[None, :, None] * shortcut_logits
+        logits = logits.view(B, T, -1)
         logits = logits.float()
         logits = softcap * torch.tanh(logits / softcap)
 
