@@ -179,6 +179,7 @@ class GPT(nn.Module):
         self.chunk_gate = nn.Linear(self.chunk_size * config.n_embd, config.n_embd, bias=True)
         self.chunk_resid = nn.Linear(config.n_embd, config.n_embd, bias=False)
         self.chunk_decode_offsets = nn.Parameter(torch.zeros(self.chunk_size, config.n_embd))
+        self.chunk_decode_proj = nn.Linear(config.n_embd, self.chunk_size * config.n_embd, bias=False)
         self.shortcut_scale = nn.Parameter(torch.full((self.chunk_size,), 0.1))
         self.resid_lambdas = nn.Parameter(torch.ones(config.n_layer))
         self.x0_lambdas = nn.Parameter(torch.zeros(config.n_layer))
@@ -204,6 +205,7 @@ class GPT(nn.Module):
         torch.nn.init.zeros_(self.chunk_gate.weight)
         torch.nn.init.zeros_(self.chunk_gate.bias)
         torch.nn.init.zeros_(self.chunk_resid.weight)
+        torch.nn.init.zeros_(self.chunk_decode_proj.weight)
         self.chunk_decode_offsets.zero_()
         # Transformer blocks
         n_embd = self.config.n_embd
@@ -266,6 +268,7 @@ class GPT(nn.Module):
         nparams_exclude = (self.transformer.wte.weight.numel() + value_embeds_numel +
                           self.chunk_gate.weight.numel() + self.chunk_gate.bias.numel() +
                           self.chunk_resid.weight.numel() + self.chunk_decode_offsets.numel() +
+                          self.chunk_decode_proj.weight.numel() +
                           self.token_shortcut_head.weight.numel() +
                           self.shortcut_scale.numel() +
                           self.resid_lambdas.numel() + self.x0_lambdas.numel())
@@ -284,15 +287,16 @@ class GPT(nn.Module):
         chunk_gate = sum(p.numel() for p in self.chunk_gate.parameters())
         chunk_resid = sum(p.numel() for p in self.chunk_resid.parameters())
         chunk_decode_offsets = self.chunk_decode_offsets.numel()
+        chunk_decode_proj = sum(p.numel() for p in self.chunk_decode_proj.parameters())
         token_shortcut_head = sum(p.numel() for p in self.token_shortcut_head.parameters())
         shortcut_scale = self.shortcut_scale.numel()
         value_embeds = sum(p.numel() for p in self.value_embeds.parameters())
         lm_head = sum(p.numel() for p in self.lm_head.parameters())
         transformer_matrices = sum(p.numel() for p in self.transformer.h.parameters())
         scalars = self.resid_lambdas.numel() + self.x0_lambdas.numel()
-        total = wte + chunk_gate + chunk_resid + chunk_decode_offsets + token_shortcut_head + shortcut_scale + value_embeds + lm_head + transformer_matrices + scalars
+        total = wte + chunk_gate + chunk_resid + chunk_decode_offsets + chunk_decode_proj + token_shortcut_head + shortcut_scale + value_embeds + lm_head + transformer_matrices + scalars
         return {
-            'wte': wte, 'chunk_gate': chunk_gate, 'chunk_resid': chunk_resid, 'chunk_decode_offsets': chunk_decode_offsets, 'token_shortcut_head': token_shortcut_head, 'shortcut_scale': shortcut_scale,
+            'wte': wte, 'chunk_gate': chunk_gate, 'chunk_resid': chunk_resid, 'chunk_decode_offsets': chunk_decode_offsets, 'chunk_decode_proj': chunk_decode_proj, 'token_shortcut_head': token_shortcut_head, 'shortcut_scale': shortcut_scale,
             'value_embeds': value_embeds, 'lm_head': lm_head,
             'transformer_matrices': transformer_matrices, 'scalars': scalars, 'total': total,
         }
@@ -307,7 +311,7 @@ class GPT(nn.Module):
         embedding_params = list(self.transformer.wte.parameters())
         lm_head_params = list(self.lm_head.parameters())
         token_shortcut_params = list(self.token_shortcut_head.parameters())
-        chunk_decode_params = [self.chunk_decode_offsets]
+        chunk_decode_params = [self.chunk_decode_offsets] + list(self.chunk_decode_proj.parameters())
         shortcut_params = [self.shortcut_scale]
         resid_params = [self.resid_lambdas]
         x0_params = [self.x0_lambdas]
@@ -362,7 +366,8 @@ class GPT(nn.Module):
         x = norm(x)
 
         softcap = 15
-        logits = self.lm_head(x[:, :, None, :] + self.chunk_decode_offsets[None, None, :, :])
+        decode_offsets = self.chunk_decode_offsets[None, None, :, :] + self.chunk_decode_proj(x).view(B, chunk_T, self.chunk_size, -1)
+        logits = self.lm_head(x[:, :, None, :] + decode_offsets)
         shortcut_logits = self.token_shortcut_head(token_x).view(B, chunk_T, self.chunk_size, -1)
         logits = logits.view(B, chunk_T, self.chunk_size, -1) + self.shortcut_scale[None, :, None] * shortcut_logits
         logits = logits.view(B, T, -1)
