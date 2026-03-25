@@ -178,9 +178,6 @@ class GPT(nn.Module):
         self.token_shortcut_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.chunk_gate = nn.Linear(self.chunk_size * config.n_embd, config.n_embd, bias=True)
         self.chunk_resid = nn.Linear(config.n_embd, config.n_embd, bias=False)
-        self.chunk_encoder_refine_down = nn.Linear(config.n_embd, 16, bias=False)
-        self.chunk_encoder_refine_up = nn.Linear(16, config.n_embd, bias=False)
-        self.chunk_encoder_refine_scale = nn.Parameter(torch.tensor(0.05))
         self.chunk_decode_offsets = nn.Parameter(torch.zeros(self.chunk_size, config.n_embd))
         self.chunk_decode_proj = nn.Linear(config.n_embd, self.chunk_size * config.n_embd, bias=False)
         self.chunk_pre_norm = nn.LayerNorm(config.n_embd)
@@ -211,9 +208,6 @@ class GPT(nn.Module):
         torch.nn.init.zeros_(self.chunk_gate.weight)
         torch.nn.init.zeros_(self.chunk_gate.bias)
         torch.nn.init.zeros_(self.chunk_resid.weight)
-        torch.nn.init.normal_(self.chunk_encoder_refine_down.weight, mean=0.0, std=0.02)
-        torch.nn.init.zeros_(self.chunk_encoder_refine_up.weight)
-        self.chunk_encoder_refine_scale.fill_(0.05)
         torch.nn.init.zeros_(self.chunk_decode_proj.weight)
         torch.nn.init.zeros_(self.chunk_interface.weight)
         torch.nn.init.zeros_(self.chunk_interface.bias)
@@ -300,8 +294,6 @@ class GPT(nn.Module):
         wte = sum(p.numel() for p in self.transformer.wte.parameters())
         chunk_gate = sum(p.numel() for p in self.chunk_gate.parameters())
         chunk_resid = sum(p.numel() for p in self.chunk_resid.parameters())
-        chunk_encoder_refine = sum(p.numel() for p in self.chunk_encoder_refine_down.parameters()) + sum(p.numel() for p in self.chunk_encoder_refine_up.parameters())
-        chunk_encoder_refine_scale = self.chunk_encoder_refine_scale.numel()
         chunk_decode_offsets = self.chunk_decode_offsets.numel()
         chunk_decode_proj = sum(p.numel() for p in self.chunk_decode_proj.parameters())
         chunk_pre_norm = sum(p.numel() for p in self.chunk_pre_norm.parameters())
@@ -313,9 +305,9 @@ class GPT(nn.Module):
         lm_head = sum(p.numel() for p in self.lm_head.parameters())
         transformer_matrices = sum(p.numel() for p in self.transformer.h.parameters())
         scalars = self.resid_lambdas.numel() + self.x0_lambdas.numel()
-        total = wte + chunk_gate + chunk_resid + chunk_encoder_refine + chunk_encoder_refine_scale + chunk_decode_offsets + chunk_decode_proj + chunk_pre_norm + chunk_interface + chunk_interface_scale + token_shortcut_head + shortcut_scale + value_embeds + lm_head + transformer_matrices + scalars
+        total = wte + chunk_gate + chunk_resid + chunk_decode_offsets + chunk_decode_proj + chunk_pre_norm + chunk_interface + chunk_interface_scale + token_shortcut_head + shortcut_scale + value_embeds + lm_head + transformer_matrices + scalars
         return {
-            'wte': wte, 'chunk_gate': chunk_gate, 'chunk_resid': chunk_resid, 'chunk_encoder_refine': chunk_encoder_refine, 'chunk_encoder_refine_scale': chunk_encoder_refine_scale, 'chunk_decode_offsets': chunk_decode_offsets, 'chunk_decode_proj': chunk_decode_proj, 'chunk_pre_norm': chunk_pre_norm, 'chunk_interface': chunk_interface, 'chunk_interface_scale': chunk_interface_scale, 'token_shortcut_head': token_shortcut_head, 'shortcut_scale': shortcut_scale,
+            'wte': wte, 'chunk_gate': chunk_gate, 'chunk_resid': chunk_resid, 'chunk_decode_offsets': chunk_decode_offsets, 'chunk_decode_proj': chunk_decode_proj, 'chunk_pre_norm': chunk_pre_norm, 'chunk_interface': chunk_interface, 'chunk_interface_scale': chunk_interface_scale, 'token_shortcut_head': token_shortcut_head, 'shortcut_scale': shortcut_scale,
             'value_embeds': value_embeds, 'lm_head': lm_head,
             'transformer_matrices': transformer_matrices, 'scalars': scalars, 'total': total,
         }
@@ -326,8 +318,6 @@ class GPT(nn.Module):
         matrix_params = list(self.transformer.h.parameters())
         chunk_gate_params = list(self.chunk_gate.parameters())
         chunk_resid_params = list(self.chunk_resid.parameters())
-        chunk_encoder_refine_params = list(self.chunk_encoder_refine_down.parameters()) + list(self.chunk_encoder_refine_up.parameters())
-        chunk_encoder_refine_scale_params = [self.chunk_encoder_refine_scale]
         value_embeds_params = list(self.value_embeds.parameters())
         embedding_params = list(self.transformer.wte.parameters())
         lm_head_params = list(self.lm_head.parameters())
@@ -340,7 +330,7 @@ class GPT(nn.Module):
         resid_params = [self.resid_lambdas]
         x0_params = [self.x0_lambdas]
         assert len(list(self.parameters())) == (len(matrix_params) + len(embedding_params) +
-            len(chunk_gate_params) + len(chunk_resid_params) + len(chunk_encoder_refine_params) + len(chunk_encoder_refine_scale_params) + len(lm_head_params) + len(token_shortcut_params) + len(chunk_decode_params) + len(chunk_pre_norm_params) + len(chunk_interface_params) + len(chunk_interface_scale_params) +
+            len(chunk_gate_params) + len(chunk_resid_params) + len(lm_head_params) + len(token_shortcut_params) + len(chunk_decode_params) + len(chunk_pre_norm_params) + len(chunk_interface_params) + len(chunk_interface_scale_params) +
             len(shortcut_params) + len(value_embeds_params) + len(resid_params) + len(x0_params))
         # Scale LR ∝ 1/√dmodel (tuned at 768 dim)
         dmodel_lr_scale = (model_dim / 768) ** -0.5
@@ -350,8 +340,7 @@ class GPT(nn.Module):
             dict(kind='adamw', params=lm_head_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
             dict(kind='adamw', params=chunk_decode_params, lr=decode_lr, betas=adam_betas, eps=1e-10, weight_decay=0.0),
             dict(kind='adamw', params=token_shortcut_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=embedding_params + chunk_gate_params + chunk_resid_params + chunk_encoder_refine_params + chunk_pre_norm_params + chunk_interface_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=chunk_encoder_refine_scale_params, lr=scalar_lr * 0.05, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', params=embedding_params + chunk_gate_params + chunk_resid_params + chunk_pre_norm_params + chunk_interface_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
             dict(kind='adamw', params=chunk_interface_scale_params, lr=scalar_lr * 0.1, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
             dict(kind='adamw', params=value_embeds_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
             dict(kind='adamw', params=shortcut_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
@@ -384,7 +373,6 @@ class GPT(nn.Module):
         gate = torch.sigmoid(self.chunk_gate(chunk_pair))
         x = gate * x[:, :, 0, :] + (1 - gate) * x[:, :, 1, :]
         x = x + self.chunk_resid(x)
-        x = x + self.chunk_encoder_refine_scale * self.chunk_encoder_refine_up(F.silu(self.chunk_encoder_refine_down(x)))
         x = self.chunk_pre_norm(x)
         x = x + self.chunk_interface_scale * self.chunk_interface(x)
         x0 = x
