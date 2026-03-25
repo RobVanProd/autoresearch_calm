@@ -29,7 +29,11 @@ except Exception as exc:
     fa3 = None
     fa3_load_error = exc
 
-from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb
+from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb, get_token_bytes
+
+LIVE_STABILITY_VARIANT = int(os.getenv("LIVE_STABILITY_VARIANT", "1"))
+LIVE_PREFIX_FRAC = float(os.getenv("LIVE_PREFIX_FRAC", "0.8"))
+ONLINE_PROBE_STEPS = int(os.getenv("ONLINE_PROBE_STEPS", "2"))
 
 # ---------------------------------------------------------------------------
 # GPT Model
@@ -197,9 +201,13 @@ class GPT(nn.Module):
         self.chunk_pre_norm = nn.LayerNorm(config.n_embd)
         self.chunk_interface = nn.Linear(config.n_embd, config.n_embd, bias=True)
         self.chunk_interface_scale = nn.Parameter(torch.full((config.n_embd,), 0.05))
+        self.live_carry_scale = nn.Parameter(torch.zeros(config.n_embd))
         self.shortcut_scale = nn.Parameter(torch.full((self.chunk_size,), 0.1))
         self.resid_lambdas = nn.Parameter(torch.ones(config.n_layer))
         self.x0_lambdas = nn.Parameter(torch.zeros(config.n_layer))
+        self.live_phase = 0
+        self.live_variant = LIVE_STABILITY_VARIANT
+        self.live_carry_state = None
         # Value embeddings
         head_dim = config.n_embd // config.n_head
         kv_dim = config.n_kv_head * head_dim
@@ -232,6 +240,7 @@ class GPT(nn.Module):
         self.chunk_pre_backbone_bias.zero_()
         self.chunk_post_backbone_scale.zero_()
         self.chunk_post_backbone_bias.zero_()
+        self.live_carry_scale.zero_()
         torch.nn.init.normal_(self.chunk_decode_hidden.weight, mean=0.0, std=0.02)
         torch.nn.init.zeros_(self.chunk_decode_hidden.bias)
         torch.nn.init.zeros_(self.chunk_decode_proj.weight)
@@ -303,6 +312,7 @@ class GPT(nn.Module):
                           self.chunk_resid.weight.numel() + self.chunk_pre_adapter_down.weight.numel() + self.chunk_pre_adapter_up.weight.numel() + self.chunk_pre_adapter_gate.weight.numel() + self.chunk_pre_adapter_gate.bias.numel() + self.chunk_decode_offsets.numel() +
                           self.chunk_pre_backbone_scale.numel() + self.chunk_pre_backbone_bias.numel() +
                           self.chunk_post_backbone_scale.numel() + self.chunk_post_backbone_bias.numel() +
+                          self.live_carry_scale.numel() +
                           self.chunk_decode_hidden.weight.numel() + self.chunk_decode_hidden.bias.numel() +
                           self.chunk_decode_proj.weight.numel() +
                           self.chunk_pre_norm.weight.numel() + self.chunk_pre_norm.bias.numel() +
@@ -330,6 +340,7 @@ class GPT(nn.Module):
         chunk_pre_adapter = sum(p.numel() for p in self.chunk_pre_adapter_down.parameters()) + sum(p.numel() for p in self.chunk_pre_adapter_up.parameters()) + sum(p.numel() for p in self.chunk_pre_adapter_gate.parameters())
         chunk_pre_backbone = self.chunk_pre_backbone_scale.numel() + self.chunk_pre_backbone_bias.numel()
         chunk_post_backbone = self.chunk_post_backbone_scale.numel() + self.chunk_post_backbone_bias.numel()
+        live_carry = self.live_carry_scale.numel()
         chunk_decode_offsets = self.chunk_decode_offsets.numel()
         chunk_decode_hidden = sum(p.numel() for p in self.chunk_decode_hidden.parameters())
         chunk_decode_proj = sum(p.numel() for p in self.chunk_decode_proj.parameters())
@@ -342,9 +353,9 @@ class GPT(nn.Module):
         lm_head = sum(p.numel() for p in self.lm_head.parameters())
         transformer_matrices = sum(p.numel() for p in self.transformer.h.parameters())
         scalars = self.resid_lambdas.numel() + self.x0_lambdas.numel()
-        total = wte + chunk_gate + chunk_gate_hidden + chunk_gate_resid + chunk_resid + chunk_pre_adapter + chunk_pre_backbone + chunk_post_backbone + chunk_decode_offsets + chunk_decode_hidden + chunk_decode_proj + chunk_pre_norm + chunk_interface + chunk_interface_scale + token_shortcut_head + shortcut_scale + value_embeds + lm_head + transformer_matrices + scalars
+        total = wte + chunk_gate + chunk_gate_hidden + chunk_gate_resid + chunk_resid + chunk_pre_adapter + chunk_pre_backbone + chunk_post_backbone + live_carry + chunk_decode_offsets + chunk_decode_hidden + chunk_decode_proj + chunk_pre_norm + chunk_interface + chunk_interface_scale + token_shortcut_head + shortcut_scale + value_embeds + lm_head + transformer_matrices + scalars
         return {
-            'wte': wte, 'chunk_gate': chunk_gate, 'chunk_gate_hidden': chunk_gate_hidden, 'chunk_gate_resid': chunk_gate_resid, 'chunk_resid': chunk_resid, 'chunk_pre_adapter': chunk_pre_adapter, 'chunk_pre_backbone': chunk_pre_backbone, 'chunk_post_backbone': chunk_post_backbone, 'chunk_decode_offsets': chunk_decode_offsets, 'chunk_decode_hidden': chunk_decode_hidden, 'chunk_decode_proj': chunk_decode_proj, 'chunk_pre_norm': chunk_pre_norm, 'chunk_interface': chunk_interface, 'chunk_interface_scale': chunk_interface_scale, 'token_shortcut_head': token_shortcut_head, 'shortcut_scale': shortcut_scale,
+            'wte': wte, 'chunk_gate': chunk_gate, 'chunk_gate_hidden': chunk_gate_hidden, 'chunk_gate_resid': chunk_gate_resid, 'chunk_resid': chunk_resid, 'chunk_pre_adapter': chunk_pre_adapter, 'chunk_pre_backbone': chunk_pre_backbone, 'chunk_post_backbone': chunk_post_backbone, 'live_carry': live_carry, 'chunk_decode_offsets': chunk_decode_offsets, 'chunk_decode_hidden': chunk_decode_hidden, 'chunk_decode_proj': chunk_decode_proj, 'chunk_pre_norm': chunk_pre_norm, 'chunk_interface': chunk_interface, 'chunk_interface_scale': chunk_interface_scale, 'token_shortcut_head': token_shortcut_head, 'shortcut_scale': shortcut_scale,
             'value_embeds': value_embeds, 'lm_head': lm_head,
             'transformer_matrices': transformer_matrices, 'scalars': scalars, 'total': total,
         }
@@ -360,6 +371,7 @@ class GPT(nn.Module):
         chunk_pre_adapter_params = list(self.chunk_pre_adapter_down.parameters()) + list(self.chunk_pre_adapter_up.parameters()) + list(self.chunk_pre_adapter_gate.parameters())
         chunk_pre_backbone_params = [self.chunk_pre_backbone_scale, self.chunk_pre_backbone_bias]
         chunk_post_backbone_params = [self.chunk_post_backbone_scale, self.chunk_post_backbone_bias]
+        live_carry_params = [self.live_carry_scale]
         chunk_decode_hidden_params = list(self.chunk_decode_hidden.parameters())
         chunk_decode_proj_params = list(self.chunk_decode_proj.parameters())
         value_embeds_params = list(self.value_embeds.parameters())
@@ -373,7 +385,7 @@ class GPT(nn.Module):
         resid_params = [self.resid_lambdas]
         x0_params = [self.x0_lambdas]
         assert len(list(self.parameters())) == (len(matrix_params) + len(embedding_params) +
-            len(chunk_gate_params) + len(chunk_gate_hidden_params) + len(chunk_gate_resid_params) + len(chunk_resid_params) + len(chunk_pre_adapter_params) + len(chunk_pre_backbone_params) + len(chunk_post_backbone_params) + 1 + len(chunk_decode_hidden_params) + len(chunk_decode_proj_params) + len(lm_head_params) + len(token_shortcut_params) + len(chunk_pre_norm_params) + len(chunk_interface_params) + len(chunk_interface_scale_params) +
+            len(chunk_gate_params) + len(chunk_gate_hidden_params) + len(chunk_gate_resid_params) + len(chunk_resid_params) + len(chunk_pre_adapter_params) + len(chunk_pre_backbone_params) + len(chunk_post_backbone_params) + len(live_carry_params) + 1 + len(chunk_decode_hidden_params) + len(chunk_decode_proj_params) + len(lm_head_params) + len(token_shortcut_params) + len(chunk_pre_norm_params) + len(chunk_interface_params) + len(chunk_interface_scale_params) +
             len(shortcut_params) + len(value_embeds_params) + len(resid_params) + len(x0_params))
         # Scale LR ∝ 1/√dmodel (tuned at 768 dim)
         dmodel_lr_scale = (model_dim / 768) ** -0.5
@@ -381,18 +393,19 @@ class GPT(nn.Module):
         decode_lr = unembedding_lr * dmodel_lr_scale * 0.5
         chunk_lr = embedding_lr * dmodel_lr_scale * 0.75
         param_groups = [
-            dict(kind='adamw', params=lm_head_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=[self.chunk_decode_offsets] + chunk_decode_hidden_params + chunk_decode_proj_params, lr=decode_lr, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=token_shortcut_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=embedding_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=chunk_gate_params + chunk_gate_hidden_params + chunk_gate_resid_params + chunk_resid_params + chunk_pre_adapter_params + chunk_pre_norm_params + chunk_interface_params, lr=chunk_lr, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=chunk_pre_backbone_params, lr=scalar_lr * 0.1, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=chunk_post_backbone_params, lr=scalar_lr * 0.1, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=chunk_interface_scale_params, lr=scalar_lr * 0.1, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=value_embeds_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=shortcut_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=resid_params, lr=scalar_lr * 0.01, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=x0_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', role='lm_head', params=lm_head_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', role='chunk_decode', params=[self.chunk_decode_offsets] + chunk_decode_hidden_params + chunk_decode_proj_params, lr=decode_lr, betas=adam_betas, eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', role='token_shortcut', params=token_shortcut_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', role='embedding', params=embedding_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', role='chunk', params=chunk_gate_params + chunk_gate_hidden_params + chunk_gate_resid_params + chunk_resid_params + chunk_pre_adapter_params + chunk_pre_norm_params + chunk_interface_params, lr=chunk_lr, betas=adam_betas, eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', role='chunk_scalar', params=chunk_pre_backbone_params, lr=scalar_lr * 0.1, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', role='chunk_scalar', params=chunk_post_backbone_params, lr=scalar_lr * 0.1, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', role='chunk_scalar', params=live_carry_params, lr=scalar_lr * 0.1, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', role='chunk_scalar', params=chunk_interface_scale_params, lr=scalar_lr * 0.1, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', role='value_embeds', params=value_embeds_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', role='shortcut', params=shortcut_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', role='resid', params=resid_params, lr=scalar_lr * 0.01, betas=adam_betas, eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', role='x0', params=x0_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
         ]
         for shape in sorted({p.shape for p in matrix_params}):
             group_params = [p for p in matrix_params if p.shape == shape]
@@ -424,6 +437,8 @@ class GPT(nn.Module):
         x = x + self.chunk_pre_backbone_scale * self.chunk_pre_backbone_norm(x) + self.chunk_pre_backbone_bias
         x = self.chunk_pre_norm(x)
         x = x + self.chunk_interface_scale * self.chunk_interface(x)
+        if self.live_phase and self.live_variant == 3 and self.live_carry_state is not None:
+            x = x + self.live_carry_scale * self.live_carry_state
         x0 = x
         for i, block in enumerate(self.transformer.h):
             x = self.resid_lambdas[i] * x + self.x0_lambdas[i] * x0
@@ -433,6 +448,8 @@ class GPT(nn.Module):
             x = block(x, ve, cos_sin, self.window_sizes[i])
         x = norm(x)
         x = x + self.chunk_post_backbone_scale * self.chunk_post_backbone_norm(x) + self.chunk_post_backbone_bias
+        if self.live_phase and self.live_variant == 3:
+            self.live_carry_state = x[:, -1:, :].detach().mean(dim=0, keepdim=True)
 
         softcap = 15
         decode_offsets = self.chunk_decode_offsets[None, None, :, :] + self.chunk_decode_proj(F.silu(self.chunk_decode_hidden(x))).view(B, chunk_T, self.chunk_size, -1)
@@ -587,6 +604,23 @@ class MuonAdamW(torch.optim.Optimizer):
             elif group['kind'] == 'muon':
                 self._step_muon(group)
 
+
+@torch.no_grad()
+def evaluate_bpb_steps(model, tokenizer, batch_size, steps):
+    token_bytes = get_token_bytes(device="cuda")
+    val_loader = make_dataloader(tokenizer, batch_size, MAX_SEQ_LEN, "val")
+    total_nats = 0.0
+    total_bytes = 0
+    for _ in range(steps):
+        x, y, _ = next(val_loader)
+        loss_flat = model(x, y, reduction='none').view(-1)
+        y_flat = y.view(-1)
+        nbytes = token_bytes[y_flat]
+        mask = nbytes > 0
+        total_nats += (loss_flat * mask).sum().item()
+        total_bytes += nbytes.sum().item()
+    return total_nats / (math.log(2) * total_bytes)
+
 # ---------------------------------------------------------------------------
 # Hyperparameters (edit these directly, no CLI flags needed)
 # ---------------------------------------------------------------------------
@@ -712,10 +746,22 @@ t_start_training = time.time()
 smooth_train_loss = 0
 total_training_time = 0
 step = 0
+online_started = False
+prefix_probe_bpb = None
+online_probe_bpb = None
+grad_norm_prefix_sum = 0.0
+grad_norm_prefix_max = 0.0
+grad_norm_prefix_steps = 0
+grad_norm_online_sum = 0.0
+grad_norm_online_max = 0.0
+grad_norm_online_steps = 0
+clip_events = 0
 
 while True:
     torch.cuda.synchronize()
     t0 = time.time()
+    online_phase = total_training_time >= TIME_BUDGET * LIVE_PREFIX_FRAC
+    model.live_phase = int(online_phase)
     for micro_step in range(grad_accum_steps):
         with autocast_ctx:
             loss = model(x, y)
@@ -730,10 +776,18 @@ while True:
     muon_momentum = get_muon_momentum(step)
     muon_weight_decay = get_weight_decay(progress)
     for group in optimizer.param_groups:
-        group["lr"] = group["initial_lr"] * lrm
+        live_scale = 1.0
+        if LIVE_STABILITY_VARIANT == 4 and online_phase and group.get("role") == "chunk_decode":
+            live_scale = 0.5
+        group["lr"] = group["initial_lr"] * lrm * live_scale
         if group['kind'] == 'muon':
             group["momentum"] = muon_momentum
             group["weight_decay"] = muon_weight_decay
+    if LIVE_STABILITY_VARIANT == 2 and online_phase:
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        clip_events += int(grad_norm > 1.0)
+    else:
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"))
     optimizer.step()
     model.zero_grad(set_to_none=True)
 
@@ -751,6 +805,25 @@ while True:
     if step > 10:
         total_training_time += dt
 
+    grad_norm_f = float(grad_norm)
+    if online_phase:
+        grad_norm_online_sum += grad_norm_f
+        grad_norm_online_max = max(grad_norm_online_max, grad_norm_f)
+        grad_norm_online_steps += 1
+    else:
+        grad_norm_prefix_sum += grad_norm_f
+        grad_norm_prefix_max = max(grad_norm_prefix_max, grad_norm_f)
+        grad_norm_prefix_steps += 1
+
+    if (not online_started) and progress >= LIVE_PREFIX_FRAC:
+        model.eval()
+        with autocast_ctx:
+            prefix_probe_bpb = evaluate_bpb_steps(model, tokenizer, DEVICE_BATCH_SIZE, ONLINE_PROBE_STEPS)
+        model.train()
+        online_started = True
+        if LIVE_STABILITY_VARIANT == 3:
+            model.live_carry_state = None
+
     # Logging
     ema_beta = 0.9
     smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss_f
@@ -759,8 +832,9 @@ while True:
     tok_per_sec = int(TOTAL_BATCH_SIZE / dt)
     mfu = 100 * num_flops_per_token * TOTAL_BATCH_SIZE / dt / H100_BF16_PEAK_FLOPS
     remaining = max(0, TIME_BUDGET - total_training_time)
+    phase_name = "online" if online_phase else "prefix"
 
-    print(f"\rstep {step:05d} ({pct_done:.1f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining:.0f}s    ", end="", flush=True)
+    print(f"\rstep {step:05d} ({pct_done:.1f}%) | phase: {phase_name:6s} | loss: {debiased_smooth_loss:.6f} | gn: {grad_norm_f:.2f} | lrm: {lrm:.2f} | dt: {dt*1000:.0f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.1f}% | epoch: {epoch} | remaining: {remaining:.0f}s    ", end="", flush=True)
 
     # GC management (Python's GC causes ~500ms stalls)
     if step == 0:
@@ -780,8 +854,12 @@ print()  # newline after \r training log
 
 total_tokens = step * TOTAL_BATCH_SIZE
 
-# Final eval
+# Streaming probe summary
 model.eval()
+with autocast_ctx:
+    online_probe_bpb = evaluate_bpb_steps(model, tokenizer, DEVICE_BATCH_SIZE, ONLINE_PROBE_STEPS)
+
+# Final eval
 with autocast_ctx:
     val_bpb = evaluate_bpb(model, tokenizer, DEVICE_BATCH_SIZE)
 
@@ -801,3 +879,12 @@ print(f"total_tokens_M:   {total_tokens / 1e6:.1f}")
 print(f"num_steps:        {step}")
 print(f"num_params_M:     {num_params / 1e6:.1f}")
 print(f"depth:            {DEPTH}")
+if prefix_probe_bpb is not None:
+    print(f"online_prefix_probe_bpb: {prefix_probe_bpb:.6f}")
+    print(f"online_final_probe_bpb:   {online_probe_bpb:.6f}")
+    print(f"online_bpb_drift:         {online_probe_bpb - prefix_probe_bpb:.6f}")
+print(f"grad_norm_prefix_mean: {grad_norm_prefix_sum / max(1, grad_norm_prefix_steps):.4f}")
+print(f"grad_norm_prefix_max:  {grad_norm_prefix_max:.4f}")
+print(f"grad_norm_online_mean: {grad_norm_online_sum / max(1, grad_norm_online_steps):.4f}")
+print(f"grad_norm_online_max:  {grad_norm_online_max:.4f}")
+print(f"grad_clip_events:      {clip_events}")
