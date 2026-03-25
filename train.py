@@ -322,7 +322,8 @@ class GPT(nn.Module):
         embedding_params = list(self.transformer.wte.parameters())
         lm_head_params = list(self.lm_head.parameters())
         token_shortcut_params = list(self.token_shortcut_head.parameters())
-        chunk_decode_params = [self.chunk_decode_offsets] + list(self.chunk_decode_proj.parameters())
+        chunk_decode_offsets_params = [self.chunk_decode_offsets]
+        chunk_decode_proj_params = list(self.chunk_decode_proj.parameters())
         chunk_pre_norm_params = list(self.chunk_pre_norm.parameters())
         chunk_interface_params = list(self.chunk_interface.parameters())
         chunk_interface_scale_params = [self.chunk_interface_scale]
@@ -330,7 +331,7 @@ class GPT(nn.Module):
         resid_params = [self.resid_lambdas]
         x0_params = [self.x0_lambdas]
         assert len(list(self.parameters())) == (len(matrix_params) + len(embedding_params) +
-            len(chunk_gate_params) + len(chunk_resid_params) + len(lm_head_params) + len(token_shortcut_params) + len(chunk_decode_params) + len(chunk_pre_norm_params) + len(chunk_interface_params) + len(chunk_interface_scale_params) +
+            len(chunk_gate_params) + len(chunk_resid_params) + len(lm_head_params) + len(token_shortcut_params) + len(chunk_decode_offsets_params) + len(chunk_decode_proj_params) + len(chunk_pre_norm_params) + len(chunk_interface_params) + len(chunk_interface_scale_params) +
             len(shortcut_params) + len(value_embeds_params) + len(resid_params) + len(x0_params))
         # Scale LR ∝ 1/√dmodel (tuned at 768 dim)
         dmodel_lr_scale = (model_dim / 768) ** -0.5
@@ -338,7 +339,8 @@ class GPT(nn.Module):
         decode_lr = unembedding_lr * dmodel_lr_scale * 0.5
         param_groups = [
             dict(kind='adamw', params=lm_head_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=False),
-            dict(kind='adamw', params=chunk_decode_params, lr=decode_lr, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=True),
+            dict(kind='adamw', params=chunk_decode_proj_params, lr=decode_lr, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=True),
+            dict(kind='adamw', params=chunk_decode_offsets_params, lr=decode_lr * 0.25, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=True),
             dict(kind='adamw', params=token_shortcut_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=False),
             dict(kind='adamw', params=embedding_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=False),
             dict(kind='adamw', params=chunk_gate_params + chunk_resid_params + chunk_pre_norm_params + chunk_interface_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=True),
