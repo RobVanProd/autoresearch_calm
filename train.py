@@ -177,8 +177,8 @@ class GPT(nn.Module):
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.token_shortcut_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.chunk_gate = nn.Linear(self.chunk_size * config.n_embd, config.n_embd, bias=True)
-        self.chunk_gate_hidden_dim = 736
-        self.chunk_decode_hidden_dim = 245
+        self.chunk_gate_hidden_dim = 691
+        self.chunk_decode_hidden_dim = 290
         self.chunk_gate_hidden = nn.Linear(self.chunk_size * config.n_embd, self.chunk_gate_hidden_dim, bias=True)
         self.chunk_gate_resid = nn.Linear(self.chunk_gate_hidden_dim, config.n_embd, bias=False)
         self.chunk_resid = nn.Linear(config.n_embd, config.n_embd, bias=False)
