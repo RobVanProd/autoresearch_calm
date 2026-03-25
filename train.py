@@ -178,7 +178,7 @@ class GPT(nn.Module):
         self.token_shortcut_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.chunk_gate = nn.Linear(self.chunk_size * config.n_embd, config.n_embd, bias=True)
         self.chunk_resid = nn.Linear(config.n_embd, config.n_embd, bias=False)
-        self.chunk_phase_bias = nn.Parameter(torch.zeros(2, config.n_embd))
+        self.chunk_boundary_scale = nn.Parameter(torch.zeros(config.n_embd))
         self.chunk_decode_offsets = nn.Parameter(torch.zeros(self.chunk_size, config.n_embd))
         self.chunk_decode_proj = nn.Linear(config.n_embd, self.chunk_size * config.n_embd, bias=False)
         self.chunk_pre_norm = nn.LayerNorm(config.n_embd)
@@ -209,7 +209,6 @@ class GPT(nn.Module):
         torch.nn.init.zeros_(self.chunk_gate.weight)
         torch.nn.init.zeros_(self.chunk_gate.bias)
         torch.nn.init.zeros_(self.chunk_resid.weight)
-        self.chunk_phase_bias.zero_()
         torch.nn.init.zeros_(self.chunk_decode_proj.weight)
         torch.nn.init.zeros_(self.chunk_interface.weight)
         torch.nn.init.zeros_(self.chunk_interface.bias)
@@ -274,7 +273,7 @@ class GPT(nn.Module):
         value_embeds_numel = sum(ve.weight.numel() for ve in self.value_embeds.values())
         nparams_exclude = (self.transformer.wte.weight.numel() + value_embeds_numel +
                           self.chunk_gate.weight.numel() + self.chunk_gate.bias.numel() +
-                          self.chunk_resid.weight.numel() + self.chunk_phase_bias.numel() + self.chunk_decode_offsets.numel() +
+                          self.chunk_resid.weight.numel() + self.chunk_boundary_scale.numel() + self.chunk_decode_offsets.numel() +
                           self.chunk_decode_proj.weight.numel() +
                           self.chunk_pre_norm.weight.numel() + self.chunk_pre_norm.bias.numel() +
                           self.chunk_interface.weight.numel() + self.chunk_interface.bias.numel() +
@@ -296,7 +295,7 @@ class GPT(nn.Module):
         wte = sum(p.numel() for p in self.transformer.wte.parameters())
         chunk_gate = sum(p.numel() for p in self.chunk_gate.parameters())
         chunk_resid = sum(p.numel() for p in self.chunk_resid.parameters())
-        chunk_phase_bias = self.chunk_phase_bias.numel()
+        chunk_boundary_scale = self.chunk_boundary_scale.numel()
         chunk_decode_offsets = self.chunk_decode_offsets.numel()
         chunk_decode_proj = sum(p.numel() for p in self.chunk_decode_proj.parameters())
         chunk_pre_norm = sum(p.numel() for p in self.chunk_pre_norm.parameters())
@@ -308,9 +307,9 @@ class GPT(nn.Module):
         lm_head = sum(p.numel() for p in self.lm_head.parameters())
         transformer_matrices = sum(p.numel() for p in self.transformer.h.parameters())
         scalars = self.resid_lambdas.numel() + self.x0_lambdas.numel()
-        total = wte + chunk_gate + chunk_resid + chunk_phase_bias + chunk_decode_offsets + chunk_decode_proj + chunk_pre_norm + chunk_interface + chunk_interface_scale + token_shortcut_head + shortcut_scale + value_embeds + lm_head + transformer_matrices + scalars
+        total = wte + chunk_gate + chunk_resid + chunk_boundary_scale + chunk_decode_offsets + chunk_decode_proj + chunk_pre_norm + chunk_interface + chunk_interface_scale + token_shortcut_head + shortcut_scale + value_embeds + lm_head + transformer_matrices + scalars
         return {
-            'wte': wte, 'chunk_gate': chunk_gate, 'chunk_resid': chunk_resid, 'chunk_phase_bias': chunk_phase_bias, 'chunk_decode_offsets': chunk_decode_offsets, 'chunk_decode_proj': chunk_decode_proj, 'chunk_pre_norm': chunk_pre_norm, 'chunk_interface': chunk_interface, 'chunk_interface_scale': chunk_interface_scale, 'token_shortcut_head': token_shortcut_head, 'shortcut_scale': shortcut_scale,
+            'wte': wte, 'chunk_gate': chunk_gate, 'chunk_resid': chunk_resid, 'chunk_boundary_scale': chunk_boundary_scale, 'chunk_decode_offsets': chunk_decode_offsets, 'chunk_decode_proj': chunk_decode_proj, 'chunk_pre_norm': chunk_pre_norm, 'chunk_interface': chunk_interface, 'chunk_interface_scale': chunk_interface_scale, 'token_shortcut_head': token_shortcut_head, 'shortcut_scale': shortcut_scale,
             'value_embeds': value_embeds, 'lm_head': lm_head,
             'transformer_matrices': transformer_matrices, 'scalars': scalars, 'total': total,
         }
@@ -321,7 +320,7 @@ class GPT(nn.Module):
         matrix_params = list(self.transformer.h.parameters())
         chunk_gate_params = list(self.chunk_gate.parameters())
         chunk_resid_params = list(self.chunk_resid.parameters())
-        chunk_phase_bias_params = [self.chunk_phase_bias]
+        chunk_boundary_scale_params = [self.chunk_boundary_scale]
         value_embeds_params = list(self.value_embeds.parameters())
         embedding_params = list(self.transformer.wte.parameters())
         lm_head_params = list(self.lm_head.parameters())
@@ -334,24 +333,23 @@ class GPT(nn.Module):
         resid_params = [self.resid_lambdas]
         x0_params = [self.x0_lambdas]
         assert len(list(self.parameters())) == (len(matrix_params) + len(embedding_params) +
-            len(chunk_gate_params) + len(chunk_resid_params) + len(chunk_phase_bias_params) + len(lm_head_params) + len(token_shortcut_params) + len(chunk_decode_params) + len(chunk_pre_norm_params) + len(chunk_interface_params) + len(chunk_interface_scale_params) +
+            len(chunk_gate_params) + len(chunk_resid_params) + len(chunk_boundary_scale_params) + len(lm_head_params) + len(token_shortcut_params) + len(chunk_decode_params) + len(chunk_pre_norm_params) + len(chunk_interface_params) + len(chunk_interface_scale_params) +
             len(shortcut_params) + len(value_embeds_params) + len(resid_params) + len(x0_params))
         # Scale LR ∝ 1/√dmodel (tuned at 768 dim)
         dmodel_lr_scale = (model_dim / 768) ** -0.5
         print(f"Scaling AdamW LRs by 1/sqrt({model_dim}/768) = {dmodel_lr_scale:.6f}")
         decode_lr = unembedding_lr * dmodel_lr_scale * 0.5
-        chunk_lr = embedding_lr * dmodel_lr_scale * 0.75
         param_groups = [
-            dict(kind='adamw', params=lm_head_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=chunk_decode_params, lr=decode_lr, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=token_shortcut_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=embedding_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=chunk_gate_params + chunk_resid_params + chunk_phase_bias_params + chunk_pre_norm_params + chunk_interface_params, lr=chunk_lr, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=chunk_interface_scale_params, lr=scalar_lr * 0.1, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=value_embeds_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=shortcut_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=resid_params, lr=scalar_lr * 0.01, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=x0_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', params=lm_head_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=False),
+            dict(kind='adamw', params=chunk_decode_params, lr=decode_lr, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=True),
+            dict(kind='adamw', params=token_shortcut_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=False),
+            dict(kind='adamw', params=embedding_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=False),
+            dict(kind='adamw', params=chunk_gate_params + chunk_resid_params + chunk_boundary_scale_params + chunk_pre_norm_params + chunk_interface_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=True),
+            dict(kind='adamw', params=chunk_interface_scale_params, lr=scalar_lr * 0.1, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0, chunk_specific=True),
+            dict(kind='adamw', params=value_embeds_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=False),
+            dict(kind='adamw', params=shortcut_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0, chunk_specific=False),
+            dict(kind='adamw', params=resid_params, lr=scalar_lr * 0.01, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=False),
+            dict(kind='adamw', params=x0_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0, chunk_specific=False),
         ]
         for shape in sorted({p.shape for p in matrix_params}):
             group_params = [p for p in matrix_params if p.shape == shape]
@@ -362,6 +360,7 @@ class GPT(nn.Module):
         optimizer = MuonAdamW(param_groups)
         for group in optimizer.param_groups:
             group["initial_lr"] = group["lr"]
+            group["chunk_specific"] = bool(group.get("chunk_specific", False))
         return optimizer
 
     def forward(self, idx, targets=None, reduction='mean'):
@@ -376,10 +375,16 @@ class GPT(nn.Module):
         token_x = x
         x = x.view(B, chunk_T, self.chunk_size, x.size(-1))
         chunk_pair = x.reshape(B, chunk_T, self.chunk_size * x.size(-1))
-        chunk_phase = (torch.arange(chunk_T, device=x.device) & 1)
+        left_edge = x[:, :, 0, :]
+        right_edge = x[:, :, 1, :]
+        prev_right = torch.roll(right_edge, shifts=1, dims=1)
+        next_left = torch.roll(left_edge, shifts=-1, dims=1)
+        prev_right[:, 0, :] = 0
+        next_left[:, -1, :] = 0
+        boundary_carry = 0.5 * (prev_right + next_left)
         gate = torch.sigmoid(self.chunk_gate(chunk_pair))
         x = gate * x[:, :, 0, :] + (1 - gate) * x[:, :, 1, :]
-        x = x + self.chunk_phase_bias[chunk_phase][None, :, :]
+        x = x + self.chunk_boundary_scale * boundary_carry
         x = x + self.chunk_resid(x)
         x = self.chunk_pre_norm(x)
         x = x + self.chunk_interface_scale * self.chunk_interface(x)
@@ -662,6 +667,12 @@ def get_muon_momentum(step):
 def get_weight_decay(progress):
     return WEIGHT_DECAY * (1 - progress)
 
+def get_chunk_lr_multiplier(progress):
+    warmup = 0.20
+    if progress < warmup:
+        return progress / warmup if warmup > 0 else 1.0
+    return 1.0
+
 # ---------------------------------------------------------------------------
 # Training loop
 # ---------------------------------------------------------------------------
@@ -685,10 +696,12 @@ while True:
     # Progress and schedules
     progress = min(total_training_time / TIME_BUDGET, 1.0)
     lrm = get_lr_multiplier(progress)
+    chunk_lrm = get_chunk_lr_multiplier(progress)
     muon_momentum = get_muon_momentum(step)
     muon_weight_decay = get_weight_decay(progress)
     for group in optimizer.param_groups:
-        group["lr"] = group["initial_lr"] * lrm
+        group_lrm = lrm * (chunk_lrm if group.get("chunk_specific", False) else 1.0)
+        group["lr"] = group["initial_lr"] * group_lrm
         if group['kind'] == 'muon':
             group["momentum"] = muon_momentum
             group["weight_decay"] = muon_weight_decay
