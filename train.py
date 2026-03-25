@@ -184,6 +184,7 @@ class GPT(nn.Module):
         self.chunk_resid = nn.Linear(config.n_embd, config.n_embd, bias=False)
         self.chunk_pre_adapter_down = nn.Linear(config.n_embd, 8, bias=False)
         self.chunk_pre_adapter_up = nn.Linear(8, config.n_embd, bias=False)
+        self.chunk_pre_adapter_gate = nn.Linear(config.n_embd, 8, bias=True)
         self.chunk_pre_backbone_norm = nn.LayerNorm(config.n_embd, elementwise_affine=False)
         self.chunk_pre_backbone_scale = nn.Parameter(torch.zeros(config.n_embd))
         self.chunk_pre_backbone_bias = nn.Parameter(torch.zeros(config.n_embd))
@@ -225,6 +226,8 @@ class GPT(nn.Module):
         torch.nn.init.zeros_(self.chunk_gate_resid.weight)
         torch.nn.init.zeros_(self.chunk_resid.weight)
         torch.nn.init.zeros_(self.chunk_pre_adapter_up.weight)
+        torch.nn.init.zeros_(self.chunk_pre_adapter_gate.weight)
+        torch.nn.init.zeros_(self.chunk_pre_adapter_gate.bias)
         self.chunk_pre_backbone_scale.zero_()
         self.chunk_pre_backbone_bias.zero_()
         self.chunk_post_backbone_scale.zero_()
@@ -297,7 +300,7 @@ class GPT(nn.Module):
                           self.chunk_gate.weight.numel() + self.chunk_gate.bias.numel() +
                           self.chunk_gate_hidden.weight.numel() + self.chunk_gate_hidden.bias.numel() +
                           self.chunk_gate_resid.weight.numel() +
-                          self.chunk_resid.weight.numel() + self.chunk_pre_adapter_down.weight.numel() + self.chunk_pre_adapter_up.weight.numel() + self.chunk_decode_offsets.numel() +
+                          self.chunk_resid.weight.numel() + self.chunk_pre_adapter_down.weight.numel() + self.chunk_pre_adapter_up.weight.numel() + self.chunk_pre_adapter_gate.weight.numel() + self.chunk_pre_adapter_gate.bias.numel() + self.chunk_decode_offsets.numel() +
                           self.chunk_pre_backbone_scale.numel() + self.chunk_pre_backbone_bias.numel() +
                           self.chunk_post_backbone_scale.numel() + self.chunk_post_backbone_bias.numel() +
                           self.chunk_decode_hidden.weight.numel() + self.chunk_decode_hidden.bias.numel() +
@@ -324,7 +327,7 @@ class GPT(nn.Module):
         chunk_gate_hidden = sum(p.numel() for p in self.chunk_gate_hidden.parameters())
         chunk_gate_resid = sum(p.numel() for p in self.chunk_gate_resid.parameters())
         chunk_resid = sum(p.numel() for p in self.chunk_resid.parameters())
-        chunk_pre_adapter = sum(p.numel() for p in self.chunk_pre_adapter_down.parameters()) + sum(p.numel() for p in self.chunk_pre_adapter_up.parameters())
+        chunk_pre_adapter = sum(p.numel() for p in self.chunk_pre_adapter_down.parameters()) + sum(p.numel() for p in self.chunk_pre_adapter_up.parameters()) + sum(p.numel() for p in self.chunk_pre_adapter_gate.parameters())
         chunk_pre_backbone = self.chunk_pre_backbone_scale.numel() + self.chunk_pre_backbone_bias.numel()
         chunk_post_backbone = self.chunk_post_backbone_scale.numel() + self.chunk_post_backbone_bias.numel()
         chunk_decode_offsets = self.chunk_decode_offsets.numel()
@@ -354,7 +357,7 @@ class GPT(nn.Module):
         chunk_gate_hidden_params = list(self.chunk_gate_hidden.parameters())
         chunk_gate_resid_params = list(self.chunk_gate_resid.parameters())
         chunk_resid_params = list(self.chunk_resid.parameters())
-        chunk_pre_adapter_params = list(self.chunk_pre_adapter_down.parameters()) + list(self.chunk_pre_adapter_up.parameters())
+        chunk_pre_adapter_params = list(self.chunk_pre_adapter_down.parameters()) + list(self.chunk_pre_adapter_up.parameters()) + list(self.chunk_pre_adapter_gate.parameters())
         chunk_pre_backbone_params = [self.chunk_pre_backbone_scale, self.chunk_pre_backbone_bias]
         chunk_post_backbone_params = [self.chunk_post_backbone_scale, self.chunk_post_backbone_bias]
         chunk_decode_hidden_params = list(self.chunk_decode_hidden.parameters())
@@ -417,7 +420,7 @@ class GPT(nn.Module):
         gate = torch.sigmoid(self.chunk_gate(chunk_pair) + self.chunk_gate_resid(F.silu(self.chunk_gate_hidden(chunk_pair))))
         x = gate * x[:, :, 0, :] + (1 - gate) * x[:, :, 1, :]
         x = x + self.chunk_resid(x)
-        x = x + self.chunk_pre_adapter_up(self.chunk_pre_adapter_down(x))
+        x = x + self.chunk_pre_adapter_up(self.chunk_pre_adapter_down(x) * torch.sigmoid(self.chunk_pre_adapter_gate(x)))
         x = x + self.chunk_pre_backbone_scale * self.chunk_pre_backbone_norm(x) + self.chunk_pre_backbone_bias
         x = self.chunk_pre_norm(x)
         x = x + self.chunk_interface_scale * self.chunk_interface(x)
