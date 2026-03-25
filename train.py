@@ -131,8 +131,9 @@ class CausalSelfAttention(nn.Module):
 class MLP(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd, bias=False)
-        self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=False)
+        hidden = (15 * config.n_embd) // 4
+        self.c_fc = nn.Linear(config.n_embd, hidden, bias=False)
+        self.c_proj = nn.Linear(hidden, config.n_embd, bias=False)
 
     def forward(self, x):
         x = self.c_fc(x)
@@ -181,7 +182,11 @@ class GPT(nn.Module):
         self.chunk_decode_offsets = nn.Parameter(torch.zeros(self.chunk_size, config.n_embd))
         self.chunk_decode_proj = nn.Linear(config.n_embd, self.chunk_size * config.n_embd, bias=False)
         self.chunk_pre_norm = nn.LayerNorm(config.n_embd)
-        self.chunk_interface = nn.Linear(config.n_embd, config.n_embd, bias=True)
+        self.chunk_interface = nn.Sequential(
+            nn.Linear(config.n_embd, 64, bias=False),
+            nn.GELU(),
+            nn.Linear(64, config.n_embd, bias=True),
+        )
         self.chunk_interface_scale = nn.Parameter(torch.full((config.n_embd,), 0.05))
         self.shortcut_scale = nn.Parameter(torch.full((self.chunk_size,), 0.1))
         self.resid_lambdas = nn.Parameter(torch.ones(config.n_layer))
@@ -205,16 +210,17 @@ class GPT(nn.Module):
         torch.nn.init.normal_(self.transformer.wte.weight, mean=0.0, std=1.0)
         torch.nn.init.normal_(self.lm_head.weight, mean=0.0, std=0.001)
         torch.nn.init.normal_(self.token_shortcut_head.weight, mean=0.0, std=0.001)
+        n_embd = self.config.n_embd
+        s = 3**0.5 * n_embd**-0.5
         torch.nn.init.zeros_(self.chunk_gate.weight)
         torch.nn.init.zeros_(self.chunk_gate.bias)
         torch.nn.init.zeros_(self.chunk_resid.weight)
         torch.nn.init.zeros_(self.chunk_decode_proj.weight)
-        torch.nn.init.zeros_(self.chunk_interface.weight)
-        torch.nn.init.zeros_(self.chunk_interface.bias)
+        torch.nn.init.uniform_(self.chunk_interface[0].weight, -s, s)
+        torch.nn.init.zeros_(self.chunk_interface[2].weight)
+        torch.nn.init.zeros_(self.chunk_interface[2].bias)
         self.chunk_decode_offsets.zero_()
         # Transformer blocks
-        n_embd = self.config.n_embd
-        s = 3**0.5 * n_embd**-0.5
         for block in self.transformer.h:
             torch.nn.init.uniform_(block.attn.c_q.weight, -s, s)
             torch.nn.init.uniform_(block.attn.c_k.weight, -s, s)
@@ -275,7 +281,7 @@ class GPT(nn.Module):
                           self.chunk_resid.weight.numel() + self.chunk_decode_offsets.numel() +
                           self.chunk_decode_proj.weight.numel() +
                           self.chunk_pre_norm.weight.numel() + self.chunk_pre_norm.bias.numel() +
-                          self.chunk_interface.weight.numel() + self.chunk_interface.bias.numel() +
+                          sum(p.numel() for p in self.chunk_interface.parameters()) +
                           self.chunk_interface_scale.numel() +
                           self.token_shortcut_head.weight.numel() +
                           self.shortcut_scale.numel() +
