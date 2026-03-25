@@ -349,7 +349,7 @@ class GPT(nn.Module):
         resid_params = [self.resid_lambdas]
         x0_params = [self.x0_lambdas]
         assert len(list(self.parameters())) == (len(matrix_params) + len(embedding_params) +
-            len(chunk_gate_params) + len(chunk_gate_hidden_params) + len(chunk_gate_resid_params) + len(chunk_resid_params) + len(chunk_decode_hidden_params) + len(chunk_decode_proj_params) + len(lm_head_params) + len(token_shortcut_params) + len(chunk_pre_norm_params) + len(chunk_interface_params) + len(chunk_interface_scale_params) +
+            len(chunk_gate_params) + len(chunk_gate_hidden_params) + len(chunk_gate_resid_params) + len(chunk_resid_params) + 1 + len(chunk_decode_hidden_params) + len(chunk_decode_proj_params) + len(lm_head_params) + len(token_shortcut_params) + len(chunk_pre_norm_params) + len(chunk_interface_params) + len(chunk_interface_scale_params) +
             len(shortcut_params) + len(value_embeds_params) + len(resid_params) + len(x0_params))
         # Scale LR ∝ 1/√dmodel (tuned at 768 dim)
         dmodel_lr_scale = (model_dim / 768) ** -0.5
