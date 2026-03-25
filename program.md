@@ -36,6 +36,10 @@ Each experiment runs on a single GPU. The training script runs for a **fixed tim
 
 **Simplicity criterion**: All else being equal, simpler is better. A small improvement that adds ugly complexity is not worth it. Conversely, removing something and getting equal or better results is a great outcome — that's a simplification win. When evaluating whether to keep a change, weigh the complexity cost against the improvement magnitude. A 0.001 val_bpb improvement that adds 20 lines of hacky code? Probably not worth it. A 0.001 val_bpb improvement from deleting code? Definitely keep. An improvement of ~0 but much simpler code? Keep.
 
+**Measurement policy**: a direct promotion requires at least `0.0010` lower `val_bpb` than the current protected frontier on the same setup. Near-ties within `±0.0010` are treated as noise and must be repeated before promotion.
+
+**Causal boundary rule**: any boundary or cross-chunk feature must be causal-safe by construction. No current chunk may read information from the next chunk, and any unusually large gain must trigger a correctness audit before promotion.
+
 **The first run**: Your very first run should always be to establish the baseline, so you will run the training script as is.
 
 ## Output format
