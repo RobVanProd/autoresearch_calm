@@ -337,15 +337,16 @@ class GPT(nn.Module):
         print(f"Scaling AdamW LRs by 1/sqrt({model_dim}/768) = {dmodel_lr_scale:.6f}")
         decode_lr = unembedding_lr * dmodel_lr_scale * 0.5
         param_groups = [
-            dict(kind='adamw', params=lm_head_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=chunk_decode_params, lr=decode_lr, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=token_shortcut_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=embedding_params + chunk_gate_params + chunk_resid_params + chunk_pre_norm_params + chunk_interface_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=chunk_interface_scale_params, lr=scalar_lr * 0.1, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=value_embeds_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=shortcut_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=resid_params, lr=scalar_lr * 0.01, betas=adam_betas, eps=1e-10, weight_decay=0.0),
-            dict(kind='adamw', params=x0_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),
+            dict(kind='adamw', params=lm_head_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=False),
+            dict(kind='adamw', params=chunk_decode_params, lr=decode_lr, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=True),
+            dict(kind='adamw', params=token_shortcut_params, lr=unembedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=False),
+            dict(kind='adamw', params=embedding_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=False),
+            dict(kind='adamw', params=chunk_gate_params + chunk_resid_params + chunk_pre_norm_params + chunk_interface_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=True),
+            dict(kind='adamw', params=chunk_interface_scale_params, lr=scalar_lr * 0.1, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0, chunk_specific=True),
+            dict(kind='adamw', params=value_embeds_params, lr=embedding_lr * dmodel_lr_scale, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=False),
+            dict(kind='adamw', params=shortcut_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0, chunk_specific=False),
+            dict(kind='adamw', params=resid_params, lr=scalar_lr * 0.01, betas=adam_betas, eps=1e-10, weight_decay=0.0, chunk_specific=False),
+            dict(kind='adamw', params=x0_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0, chunk_specific=False),
         ]
         for shape in sorted({p.shape for p in matrix_params}):
             group_params = [p for p in matrix_params if p.shape == shape]
@@ -356,6 +357,7 @@ class GPT(nn.Module):
         optimizer = MuonAdamW(param_groups)
         for group in optimizer.param_groups:
             group["initial_lr"] = group["lr"]
+            group["chunk_specific"] = bool(group.get("chunk_specific", False))
         return optimizer
 
     def forward(self, idx, targets=None, reduction='mean'):
@@ -654,6 +656,12 @@ def get_muon_momentum(step):
 def get_weight_decay(progress):
     return WEIGHT_DECAY * (1 - progress)
 
+def get_chunk_lr_multiplier(progress):
+    warmup = 0.20
+    if progress < warmup:
+        return progress / warmup if warmup > 0 else 1.0
+    return 1.0
+
 # ---------------------------------------------------------------------------
 # Training loop
 # ---------------------------------------------------------------------------
@@ -677,10 +685,12 @@ while True:
     # Progress and schedules
     progress = min(total_training_time / TIME_BUDGET, 1.0)
     lrm = get_lr_multiplier(progress)
+    chunk_lrm = get_chunk_lr_multiplier(progress)
     muon_momentum = get_muon_momentum(step)
     muon_weight_decay = get_weight_decay(progress)
     for group in optimizer.param_groups:
-        group["lr"] = group["initial_lr"] * lrm
+        group_lrm = lrm * (chunk_lrm if group.get("chunk_specific", False) else 1.0)
+        group["lr"] = group["initial_lr"] * group_lrm
         if group['kind'] == 'muon':
             group["momentum"] = muon_momentum
             group["weight_decay"] = muon_weight_decay
