@@ -28,7 +28,7 @@ import torch
 # ---------------------------------------------------------------------------
 
 MAX_SEQ_LEN = 2048       # context length
-TIME_BUDGET = 300        # training time budget in seconds (5 minutes)
+TIME_BUDGET = int(os.getenv("TIME_BUDGET", "300"))  # phase9: overridable via env var
 EVAL_TOKENS = 40 * 524288  # number of tokens for val eval
 
 # ---------------------------------------------------------------------------
