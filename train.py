@@ -31,11 +31,13 @@ except Exception as exc:
 
 from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb, get_token_bytes
 
-LIVE_STABILITY_VARIANT = int(os.getenv("LIVE_STABILITY_VARIANT", "4")  # phase6-exp4: rolling-window + tiny previous-chunk carry, zero-init)
+LIVE_STABILITY_VARIANT = int(os.getenv("LIVE_STABILITY_VARIANT", "1"))  # phase7-exp1: online LR x0.1
 LIVE_PREFIX_FRAC = float(os.getenv("LIVE_PREFIX_FRAC", "0.8"))
 ONLINE_PROBE_STEPS = int(os.getenv("ONLINE_PROBE_STEPS", "2"))
 ONLINE_WEIGHT_DECAY = float(os.getenv("ONLINE_WEIGHT_DECAY", "1e-5"))
 ONLINE_COMPRESSOR_CLIP = float(os.getenv("ONLINE_COMPRESSOR_CLIP", "0.75"))
+ONLINE_LR_MULT = float(os.getenv("ONLINE_LR_MULT", "0.1"))
+ONLINE_FREEZE_COMPRESSOR = int(os.getenv("ONLINE_FREEZE_COMPRESSOR", "0"))
 COMPRESSOR_CLIP_ROLES = {"chunk", "chunk_scalar", "chunk_decode"}
 
 # ---------------------------------------------------------------------------
@@ -834,6 +836,13 @@ while True:
             prefix_probe_bpb = evaluate_bpb_steps(model, tokenizer, DEVICE_BATCH_SIZE, ONLINE_PROBE_STEPS)
         model.train()
         online_started = True
+        if ONLINE_LR_MULT != 1.0:
+            for pg in optimizer.param_groups:
+                pg['lr'] = pg['lr'] * ONLINE_LR_MULT
+        if ONLINE_FREEZE_COMPRESSOR:
+            for n, p in model.named_parameters():
+                if "compressor" in n:
+                    p.requires_grad_(False)
         model.live_carry_state = None
 
     # Logging
