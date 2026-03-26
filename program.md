@@ -98,3 +98,49 @@ Report immediately on any provisional or real win.
 Otherwise, after 4 experiments, report whether the class advanced or stalled.
 
 If stalled, restore the H100 frontier and propose the next search class explicitly before continuing.
+
+## Phase 6 Results
+
+**Verdict: CLASS STALLED**  no experiment improved over frontier 0.471874. Best was Exp2 at 0.529464 (delta +0.057590 worse). Per spec: stop this class, restore frontier, propose next class explicitly.
+
+| Exp | Variant | val_bpb | online_prefix_bpb | online_final_bpb | online_drift | grad_clip | peak_vram_mb |
+|-----|---------|---------|-------------------|-----------------|--------------|-----------|--------------|
+| 1 | rolling-window baseline (variant=1) | 0.533767 | 0.582464 | 0.572964 | -0.009500 | 0 | 7038.8 |
+| 2 | + online weight decay 1e-5 (variant=2) **BEST** | 0.529464 | 0.581876 | 0.568871 | -0.013005 | 0 | 7038.8 |
+| 3 | + compressor-only online clip norm=0.75 (variant=3) | 0.530624 | 0.583070 | 0.569732 | -0.013338 | 0 | 7038.8 |
+| 4 | + zero-init carry (variant=4) | 0.532282 | 0.582961 | 0.571391 | -0.011570 | 0 | 7038.8 |
+
+Observations:
+- All variants converge to val_bpb 0.529-0.534, far above frontier 0.471874
+- Online drift is consistently negative (online adaptation is working, ~1% BPB improvement)
+- No gradient explosions; all variants numerically stable
+- Weight decay (Exp2) gave marginal best  mild L2 regularisation during online phase helps
+- Zero-init carry (Exp4) had smallest drift, suggesting it stabilises carry but reduces adaptation speed
+- Gap to frontier (~0.058 BPB) is too large to close with single-axis online-phase stability tweaks
+
+## Phase 7
+
+**New search class: Online-phase learning-rate schedule**
+
+Hypothesis: the 300s budget online phase uses the same LR as the tail of prefix training. A tailored LR regime during the online phase could unlock faster adaptation and push val_bpb toward the frontier.
+
+This class is limited to exactly 4 official experiments.
+
+Baseline: Phase 6 Exp2, val_bpb = 0.529464 (variant=2, weight decay 1e-5).
+Promotion threshold: val_bpb < 0.528464 (0.001 improvement over Phase 6 best) OR < 0.470874 (frontier beat).
+
+The four priority probes are:
+
+1. Online LR x0.1 only  hard LR step-down to 10% of tail-LR at online phase start, no weight decay (ONLINE_LR_MULT=0.1, variant=1)
+2. Online LR x0.1 + weight decay 1e-5  combine LR step-down with best Phase 6 regulariser (ONLINE_LR_MULT=0.1, variant=2)
+3. Longer online phase  LIVE_PREFIX_FRAC=0.7, giving 30% online budget instead of 20% (variant=1, no LR change)
+4. Frozen compressor online  freeze compressor weights at online phase start, only backbone adapts (ONLINE_FREEZE_COMPRESSOR=1, variant=2)
+
+Rules:
+- implement ONLINE_LR_MULT env var (default "1.0") that scales all param-group LRs at online phase start
+- implement ONLINE_FREEZE_COMPRESSOR env var (default "0") that freezes compressor params at online phase start
+- do not change architecture, K, sequence lengths, or TIME_BUDGET
+- promotion requires 0.001 improvement over 0.529464 or frontier beat
+- if all 4 experiments lose, stop and propose a new architectural class
+
+
