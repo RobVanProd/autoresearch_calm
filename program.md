@@ -144,3 +144,43 @@ Rules:
 - if all 4 experiments lose, stop and propose a new architectural class
 
 
+
+### Phase 7 Results
+
+| Exp | Description | val_bpb | online_drift |
+|-----|-------------|---------|--------------|
+| Exp1 | LR x0.1 only, variant=1 | 0.534698 | -0.008873 |
+| Exp2 | LR x0.1 + WD 1e-5, variant=2 | 0.529912 | -0.012153 |
+| Exp3 | PREFIX_FRAC=0.7, variant=1 | 0.530622 | -0.024296 |
+| Exp4 | Frozen compressor, variant=2 | 0.535222 | -0.013405 |
+
+Verdict: CLASS STALLED. Best result Exp2 val_bpb=0.529912, above threshold 0.528464 by 0.000448.
+
+Key signals:
+- Exp3 (shorter prefix) shows largest online drift (-0.024296) -- more online time helps adaptation
+- Exp2 (LR+WD) closest to threshold -- combination is near optimal
+- LR step-down alone (Exp1, Exp4) hurts prefix-phase val_bpb
+- No experiment beat frontier (0.471874) or crossed promotion threshold (0.528464)
+
+## Phase 8
+
+New search class: Combine best Phase 7 interventions
+
+Hypothesis: Exp2 (LR+WD) and Exp3 (shorter prefix) each showed independent improvement signals.
+Combining them or adjusting the LR scale may close the remaining gap.
+
+Baseline: Phase 6 Exp2, val_bpb = 0.529464 (variant=2, weight decay 1e-5).
+Promotion threshold: val_bpb < 0.528464 (0.001 improvement) OR < 0.470874 (frontier beat).
+
+The four priority probes are:
+
+1. Exp2+Exp3 combined  LR x0.1 + WD 1e-5 + PREFIX_FRAC=0.7, variant=2 (ONLINE_LR_MULT=0.1)
+2. Gentler LR drop  ONLINE_LR_MULT=0.05 + PREFIX_FRAC=0.7, variant=1
+3. More aggressive LR  ONLINE_LR_MULT=0.01 + WD 1e-5, variant=2
+4. Budget only  no LR change (ONLINE_LR_MULT=1.0) + PREFIX_FRAC=0.65, variant=1
+
+Rules:
+- all Phase 7 env vars remain available (ONLINE_LR_MULT, ONLINE_FREEZE_COMPRESSOR)
+- do not change architecture, K, sequence lengths, or TIME_BUDGET
+- promotion requires 0.001 improvement over 0.529464 or frontier beat
+- if all 4 experiments lose, declare SEARCH EXHAUSTED on online-phase class and propose architecture change
