@@ -34,6 +34,9 @@ from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evalua
 LIVE_STABILITY_VARIANT = int(os.getenv("LIVE_STABILITY_VARIANT", "1"))
 LIVE_PREFIX_FRAC = float(os.getenv("LIVE_PREFIX_FRAC", "0.8"))
 ONLINE_PROBE_STEPS = int(os.getenv("ONLINE_PROBE_STEPS", "2"))
+ONLINE_WEIGHT_DECAY = float(os.getenv("ONLINE_WEIGHT_DECAY", "1e-5"))
+ONLINE_COMPRESSOR_CLIP = float(os.getenv("ONLINE_COMPRESSOR_CLIP", "0.75"))
+COMPRESSOR_CLIP_ROLES = {"chunk", "chunk_scalar", "chunk_decode"}
 
 # ---------------------------------------------------------------------------
 # GPT Model
@@ -437,8 +440,11 @@ class GPT(nn.Module):
         x = x + self.chunk_pre_backbone_scale * self.chunk_pre_backbone_norm(x) + self.chunk_pre_backbone_bias
         x = self.chunk_pre_norm(x)
         x = x + self.chunk_interface_scale * self.chunk_interface(x)
-        if self.live_phase and self.live_variant == 3 and self.live_carry_state is not None:
-            x = x + self.live_carry_scale * self.live_carry_state
+        if self.live_phase and self.live_carry_state is not None:
+            if self.live_variant == 4:
+                x = x + self.live_carry_scale * self.live_carry_state
+            else:
+                x = x + self.live_carry_state
         x0 = x
         for i, block in enumerate(self.transformer.h):
             x = self.resid_lambdas[i] * x + self.x0_lambdas[i] * x0
@@ -448,7 +454,7 @@ class GPT(nn.Module):
             x = block(x, ve, cos_sin, self.window_sizes[i])
         x = norm(x)
         x = x + self.chunk_post_backbone_scale * self.chunk_post_backbone_norm(x) + self.chunk_post_backbone_bias
-        if self.live_phase and self.live_variant == 3:
+        if self.live_phase:
             self.live_carry_state = x[:, -1:, :].detach().mean(dim=0, keepdim=True)
 
         softcap = 15
@@ -775,17 +781,22 @@ while True:
     lrm = get_lr_multiplier(progress)
     muon_momentum = get_muon_momentum(step)
     muon_weight_decay = get_weight_decay(progress)
+    online_weight_decay = ONLINE_WEIGHT_DECAY if (LIVE_STABILITY_VARIANT == 2 and online_phase) else 0.0
     for group in optimizer.param_groups:
-        live_scale = 1.0
-        if LIVE_STABILITY_VARIANT == 4 and online_phase and group.get("role") == "chunk_decode":
-            live_scale = 0.5
-        group["lr"] = group["initial_lr"] * lrm * live_scale
+        group["lr"] = group["initial_lr"] * lrm
         if group['kind'] == 'muon':
             group["momentum"] = muon_momentum
-            group["weight_decay"] = muon_weight_decay
-    if LIVE_STABILITY_VARIANT == 2 and online_phase:
-        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        clip_events += int(grad_norm > 1.0)
+            group["weight_decay"] = online_weight_decay if online_weight_decay > 0 else muon_weight_decay
+        else:
+            group["weight_decay"] = online_weight_decay
+    if LIVE_STABILITY_VARIANT == 3 and online_phase:
+        grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"))
+        compressor_params = []
+        for group in optimizer.param_groups:
+            if group.get("role") in COMPRESSOR_CLIP_ROLES:
+                compressor_params.extend(p for p in group["params"] if p.grad is not None)
+        compressor_norm = torch.nn.utils.clip_grad_norm_(compressor_params, ONLINE_COMPRESSOR_CLIP)
+        clip_events += int(float(compressor_norm) > ONLINE_COMPRESSOR_CLIP)
     else:
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), float("inf"))
     optimizer.step()
@@ -821,8 +832,7 @@ while True:
             prefix_probe_bpb = evaluate_bpb_steps(model, tokenizer, DEVICE_BATCH_SIZE, ONLINE_PROBE_STEPS)
         model.train()
         online_started = True
-        if LIVE_STABILITY_VARIANT == 3:
-            model.live_carry_state = None
+        model.live_carry_state = None
 
     # Logging
     ema_beta = 0.9
