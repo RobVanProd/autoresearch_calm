@@ -31,7 +31,7 @@ except Exception as exc:
 
 from prepare import MAX_SEQ_LEN, TIME_BUDGET, Tokenizer, make_dataloader, evaluate_bpb, get_token_bytes
 
-LIVE_STABILITY_VARIANT = int(os.getenv("LIVE_STABILITY_VARIANT", "1"))
+LIVE_STABILITY_VARIANT = int(os.getenv("LIVE_STABILITY_VARIANT", "2")  # phase6-exp2: rolling-window + mild online weight decay 1e-5)
 LIVE_PREFIX_FRAC = float(os.getenv("LIVE_PREFIX_FRAC", "0.8"))
 ONLINE_PROBE_STEPS = int(os.getenv("ONLINE_PROBE_STEPS", "2"))
 ONLINE_WEIGHT_DECAY = float(os.getenv("ONLINE_WEIGHT_DECAY", "1e-5"))
