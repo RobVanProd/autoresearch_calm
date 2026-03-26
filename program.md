@@ -225,3 +225,67 @@ Rules:
 - TIME_BUDGET is now a variable; K, architecture, sequence lengths stay fixed
 - promotion requires 0.001 improvement over 0.529464 or frontier beat
 - if all 4 experiments fail to improve, declare compute class exhausted and consider K=3 architecture
+
+
+## Phase 9 Results  Extended Compute / TIME_BUDGET Search
+
+**Search class:** Compute scaling  increase TIME_BUDGET beyond the 300s baseline
+
+| Exp | Config | val_bpb | online_drift |
+|-----|--------|---------|-------------|
+| Exp1 | TIME_BUDGET=600, variant=2, FRAC=0.8, LR=0.1, WD=1e-5 | 0.508576 | -0.014643 |
+| Exp2 | TIME_BUDGET=600, variant=1, FRAC=0.65, LR=1.0, WD=0 | 0.508953 | -0.030575 |
+| Exp3 | TIME_BUDGET=450, variant=2, FRAC=0.8, LR=0.1, WD=1e-5 | 0.517608 | -0.014164 |
+| Exp4 | TIME_BUDGET=600, variant=2, FRAC=0.7, LR=0.1, WD=1e-5 | 0.506314 | -0.024472 |
+
+**Best Phase 9:** Exp4  val_bpb=0.506314 (previous best: 0.529464 Phase6, 0.508576 Phase9 Exp1)
+
+**Promotion threshold (0.001 over Phase 6 best):** 0.528464  ALL Phase 9 experiments PASS
+**Frontier (0.471874):** Not yet reached
+
+**Key insights:**
+1. Compute scaling works: 300s0.529, 450s0.518, 600s0.506  clear monotone improvement
+2. Shorter prefix (more online budget): FRAC=0.7 (0.506314) > FRAC=0.8 (0.508576) at same budget
+3. Full-LR online (variant=1, LR=1.0) with even shorter FRAC=0.65 gives 0.508953  not better than variant=2 with FRAC=0.7; larger drift (-0.031) but weaker prefix
+4. Compute budget is the dominant driver; prefix allocation is secondary but real
+
+**Verdict:** CONTINUE  increasing compute budget is reliably improving val_bpb. Phase 10 explores higher budgets and continued prefix shortening.
+
+---
+
+## Phase 10 Spec  Higher Compute + Prefix Allocation Sweep
+
+**Hypothesis:** The val_bpb improvement from compute has not plateaued. Pushing to 900s (3) and exploring shorter prefixes at 600s may continue the trend.
+
+**Promotion threshold for Phase 10:** val_bpb < 0.505314 (0.001 below Phase 9 best of 0.506314)
+**Frontier:** val_bpb < 0.471874
+
+**Experiments:**
+
+| Exp | TIME_BUDGET | variant | PREFIX_FRAC | ONLINE_LR_MULT | ONLINE_WEIGHT_DECAY | ONLINE_FREEZE_COMPRESSOR |
+|-----|-------------|---------|-------------|----------------|---------------------|--------------------------|
+| Exp1 | 900 | 2 | 0.7 | 0.1 | 1e-5 | 0 |
+| Exp2 | 900 | 2 | 0.8 | 0.1 | 1e-5 | 0 |
+| Exp3 | 600 | 2 | 0.6 | 0.1 | 1e-5 | 0 |
+| Exp4 | 600 | 2 | 0.65 | 0.1 | 1e-5 | 0 |
+
+**Rationale:**
+- Exp1: Best Phase 9 config (FRAC=0.7) at 1.5 budget  tests if scaling continues
+- Exp2: Standard prefix (FRAC=0.8) at 1.5 budget  controls for prefix vs. compute
+- Exp3: Aggressive prefix shortening (FRAC=0.6 = 40% online) at same budget  tests if more online helps
+- Exp4: Intermediate FRAC=0.65 with variant=2  disentangles from Phase 9 Exp2 (which used variant=1)
+
+**Commands:**
+```
+# Exp1
+TIME_BUDGET=900 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.7 ONLINE_LR_MULT=0.1 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p10e1.log
+
+# Exp2
+TIME_BUDGET=900 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.8 ONLINE_LR_MULT=0.1 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p10e2.log
+
+# Exp3
+TIME_BUDGET=600 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.6 ONLINE_LR_MULT=0.1 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p10e3.log
+
+# Exp4
+TIME_BUDGET=600 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.65 ONLINE_LR_MULT=0.1 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p10e4.log
+```
