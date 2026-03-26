@@ -19,8 +19,5 @@ dependencies = [
 
 [tool.uv.sources]
 torch = [
-    { url = "https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/torch-2.9.1%2Brocm7.2.0.lw.git7e1940d4-cp312-cp312-linux_x86_64.whl" },
-]
-triton = [
-    { url = "https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2/triton-3.5.1%2Brocm7.2.0.gita272dfa8-cp312-cp312-linux_x86_64.whl" },
+    { url = "https://download.pytorch.org/whl/torch/torch-2.9.1%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl" },
 ]
