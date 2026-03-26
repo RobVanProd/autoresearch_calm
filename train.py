@@ -534,8 +534,10 @@ def muon_step_fused(stacked_grads, stacked_params, momentum_buffer, second_momen
 
 
 if fa3 is not None:
-    adamw_step_fused = torch.compile(adamw_step_fused, dynamic=False, fullgraph=True)
-    muon_step_fused = torch.compile(muon_step_fused, dynamic=False, fullgraph=True)
+    # Keep the fused optimizer kernels compiled, but allow graph breaks so
+    # distinct parameter shapes do not hit TorchDynamo's recompilation cap.
+    adamw_step_fused = torch.compile(adamw_step_fused, dynamic=False, fullgraph=False)
+    muon_step_fused = torch.compile(muon_step_fused, dynamic=False, fullgraph=False)
 
 
 class MuonAdamW(torch.optim.Optimizer):
