@@ -184,3 +184,44 @@ Rules:
 - do not change architecture, K, sequence lengths, or TIME_BUDGET
 - promotion requires 0.001 improvement over 0.529464 or frontier beat
 - if all 4 experiments lose, declare SEARCH EXHAUSTED on online-phase class and propose architecture change
+
+### Phase 8 Results
+| Exp | Description | val_bpb | online_drift |
+|-----|-------------|---------|--------------|
+| Exp1 | LR x0.1 + WD 1e-5 + PREFIX_FRAC=0.7, variant=2 | 0.533783 | -0.025128 |
+| Exp2 | Gentler LR x0.05 + PREFIX_FRAC=0.7, variant=1 | 0.535322 | -0.025203 |
+| Exp3 | Aggressive LR x0.01 + WD 1e-5, variant=2 | 0.536053 | -0.012879 |
+| Exp4 | Budget-only PREFIX_FRAC=0.65 no LR change, variant=1 | 0.535702 | -0.031103 |
+
+Verdict: SEARCH EXHAUSTED on online-phase optimization class.
+All Phase 8 results worse than Phase 7 best (0.529912). Best Phase 8 = 0.533783 (Exp1).
+
+Key signals:
+- Exp4 (no LR change + more online budget) shows largest drift (-0.031103) -- model CAN adapt with full LR
+- But more adaptation during online does not improve val_bpb
+- LR reduction helps prefix quality but suppresses online adaptation
+- Combining LR+WD+shorter prefix (Exp1) is still best but regresses vs Phase 7
+- Two phases of online-phase tuning failed to cross threshold; this search class is exhausted
+
+## Phase 9
+
+New search class: Extended compute (TIME_BUDGET increase)
+
+Hypothesis: TIME_BUDGET=300s is the hard ceiling -- the model has not converged.
+Doubling compute may break the plateau entirely. Best online-phase config (Phase 7 Exp2,
+variant=2, WD=1e-5, ONLINE_LR_MULT=0.1) is used as the online treatment.
+
+Baseline: Phase 6 Exp2, val_bpb = 0.529464 (variant=2, weight decay 1e-5, TIME_BUDGET=300).
+Promotion threshold: val_bpb < 0.528464 (0.001 improvement) OR < 0.470874 (frontier beat).
+
+The four priority probes are:
+
+1. 2x budget baseline  TIME_BUDGET=600, variant=2, WD=1e-5, ONLINE_LR_MULT=0.1, PREFIX_FRAC=0.8
+2. 2x budget + more online  TIME_BUDGET=600, variant=1, PREFIX_FRAC=0.65, ONLINE_LR_MULT=1.0
+3. 1.5x budget  TIME_BUDGET=450, variant=2, WD=1e-5, ONLINE_LR_MULT=0.1, PREFIX_FRAC=0.8
+4. 2x budget + shorter prefix  TIME_BUDGET=600, variant=2, WD=1e-5, ONLINE_LR_MULT=0.1, PREFIX_FRAC=0.7
+
+Rules:
+- TIME_BUDGET is now a variable; K, architecture, sequence lengths stay fixed
+- promotion requires 0.001 improvement over 0.529464 or frontier beat
+- if all 4 experiments fail to improve, declare compute class exhausted and consider K=3 architecture
