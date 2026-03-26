@@ -1,0 +1,82 @@
+Using CPython 3.12.13 interpreter at: /usr/bin/python3
+Creating virtual environment at: .venv
+Downloading nvidia-cuda-nvrtc-cu12 (84.0MiB)
+Downloading networkx (2.0MiB)
+Downloading numpy (17.1MiB)
+Downloading tiktoken (1.1MiB)
+Downloading matplotlib (8.3MiB)
+Downloading nvidia-cusparse-cu12 (274.9MiB)
+Downloading pandas (10.4MiB)
+Downloading sympy (6.0MiB)
+Downloading pyarrow (45.4MiB)
+Downloading nvidia-cusparselt-cu12 (273.9MiB)
+Downloading nvidia-cufft-cu12 (184.2MiB)
+Downloading nvidia-cusolver-cu12 (255.1MiB)
+Downloading pillow (6.7MiB)
+Downloading nvidia-curand-cu12 (60.7MiB)
+Downloading pygments (1.2MiB)
+Downloading nvidia-cuda-cupti-cu12 (9.8MiB)
+Downloading nvidia-nccl-cu12 (307.4MiB)
+Downloading nvidia-cublas-cu12 (566.8MiB)
+Downloading nvidia-cufile-cu12 (1.1MiB)
+Downloading hf-xet (4.0MiB)
+Downloading triton (162.6MiB)
+Downloading kiwisolver (1.4MiB)
+Downloading nvidia-cudnn-cu12 (674.0MiB)
+Downloading nvidia-nvjitlink-cu12 (37.4MiB)
+Downloading fonttools (4.7MiB)
+Downloading nvidia-nvshmem-cu12 (118.9MiB)
+Downloading rustbpe (1.0MiB)
+Downloading torch (859.1MiB)
+ Downloaded rustbpe
+ Downloaded nvidia-cufile-cu12
+ Downloaded tiktoken
+ Downloaded kiwisolver
+ Downloaded pygments
+ Downloaded hf-xet
+ Downloaded networkx
+ Downloaded pillow
+ Downloaded fonttools
+ Downloaded nvidia-cuda-cupti-cu12
+ Downloaded matplotlib
+ Downloaded numpy
+ Downloaded nvidia-nvjitlink-cu12
+ Downloaded sympy
+ Downloaded nvidia-curand-cu12
+ Downloaded nvidia-cuda-nvrtc-cu12
+ Downloaded nvidia-nvshmem-cu12
+ Downloaded pandas
+ Downloaded pyarrow
+ Downloaded nvidia-cufft-cu12
+ Downloaded triton
+ Downloaded nvidia-cusolver-cu12
+ Downloaded nvidia-cusparse-cu12
+ Downloaded nvidia-cusparselt-cu12
+ Downloaded nvidia-nccl-cu12
+ Downloaded nvidia-cublas-cu12
+ Downloaded nvidia-cudnn-cu12
+ Downloaded torch
+Installed 64 packages in 174ms
+Cache directory: /root/.cache/autoresearch
+
+Data: downloading 11 shards (0 already exist)...
+  Downloaded shard_00003.parquet
+  Downloaded shard_00001.parquet
+  Downloaded shard_00004.parquet
+  Downloaded shard_00000.parquet
+  Downloaded shard_00005.parquet
+  Downloaded shard_00007.parquet
+  Downloaded shard_00008.parquet
+  Downloaded shard_00006.parquet
+  Downloaded shard_06542.parquet
+  Downloaded shard_00002.parquet
+  Downloaded shard_00009.parquet
+Data: 11/11 shards ready at /root/.cache/autoresearch/data
+
+Tokenizer: training BPE tokenizer...
+Tokenizer: trained in 33.2s, saved to /root/.cache/autoresearch/tokenizer/tokenizer.pkl
+Tokenizer: building token_bytes lookup...
+Tokenizer: saved token_bytes to /root/.cache/autoresearch/tokenizer/token_bytes.pt
+Tokenizer: sanity check passed (vocab_size=8192)
+
+Done! Ready to train.
