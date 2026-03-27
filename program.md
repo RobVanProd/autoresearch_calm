@@ -289,3 +289,65 @@ TIME_BUDGET=600 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.6 ONLINE_LR_MULT=0.1
 # Exp4
 TIME_BUDGET=600 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.65 ONLINE_LR_MULT=0.1 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p10e4.log
 ```
+
+---
+
+## Phase 10 Results
+
+| Exp | TIME_BUDGET | FRAC | variant | val_bpb | online_drift | epoch | notes |
+|-----|-------------|------|---------|---------|--------------|-------|-------|
+| 1 | 900 | 0.7 | 2 | 0.496308 | -0.024898 | 3 | sub-0.5 milestone |
+| 2 | 900 | 0.8 | 2 | **0.496073** | -0.014892 | 3 | **BEST P10** |
+| 3 | 600 | 0.6 | 2 | 0.505502 | -0.035672 | 2 | shorter prefix |
+| 4 | 600 | 0.65 | 2 | 0.505508 | -0.029295 | 2 | shorter prefix |
+
+All experiments: ONLINE_LR_MULT=0.1, ONLINE_WEIGHT_DECAY=1e-5, ONLINE_FREEZE_COMPRESSOR=0
+
+**Phase 10 best**: val_bpb=0.496073 (Exp2: TIME_BUDGET=900, FRAC=0.8)
+
+### Analysis
+
+**Compute scaling continues to dominate**: 900s reliably achieves ~0.496 vs 600s ~0.505-0.506. The improvement from 600s900s is ~0.010 bpb.
+
+**FRAC insensitivity at 900s**: FRAC=0.7 (0.496308) and FRAC=0.8 (0.496073) are essentially tied (~0.0003 difference). At high compute, prefix fraction barely matters.
+
+**FRAC weakly improves at 600s**: FRAC=0.6 (0.505502)  FRAC=0.65 (0.505508) < FRAC=0.7 (0.506314 from P9). Shorter prefix gives slight edge at lower compute, but gains are diminishing beyond 0.6-0.65.
+
+**Scaling law so far** (FRAC0.7, variant=2):
+- 300s  0.529
+- 450s  0.518
+- 600s  0.506
+- 900s  0.496
+
+The per-150s improvement rate: 300450: 0.011, 450600: 0.012, 600900: 0.005/150s. The rate is slowing but scaling has not plateaued.
+
+**Verdict**: CONTINUE  compute scaling is the primary lever and we have not exhausted it.
+
+---
+
+## Phase 11 Spec
+
+**Goal**: Continue compute scaling beyond 900s. Determine if val_bpb < 0.490 is reachable within a single H100 Colab session.
+
+**Fixed config** (best from Phase 10): FRAC=0.7, variant=2, ONLINE_LR_MULT=0.1, ONLINE_WEIGHT_DECAY=1e-5, ONLINE_FREEZE_COMPRESSOR=0
+
+| Exp | TIME_BUDGET | FRAC | Notes |
+|-----|-------------|------|-------|
+| 1 | 1200 | 0.7 | +300s beyond best, ~20 min run |
+| 2 | 1500 | 0.7 | +600s beyond best, ~25 min run |
+| 3 | 1200 | 0.65 | shorter prefix at 1200s |
+
+**Threshold**: Phase 11 best must beat 0.495314 (0.001 from Phase 10) to CONTINUE. Otherwise REDESIGN.
+
+### Commands
+
+```bash
+# Exp1
+TIME_BUDGET=1200 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.7 ONLINE_LR_MULT=0.1 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p11e1.log
+
+# Exp2
+TIME_BUDGET=1500 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.7 ONLINE_LR_MULT=0.1 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p11e2.log
+
+# Exp3
+TIME_BUDGET=1200 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.65 ONLINE_LR_MULT=0.1 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p11e3.log
+```
