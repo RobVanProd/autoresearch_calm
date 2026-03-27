@@ -351,3 +351,79 @@ TIME_BUDGET=1500 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.7 ONLINE_LR_MULT=0.
 # Exp3
 TIME_BUDGET=1200 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.65 ONLINE_LR_MULT=0.1 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p11e3.log
 ```
+
+---
+
+## Phase 11 Results
+
+| Exp | TIME_BUDGET | FRAC | variant | val_bpb | online_drift | epoch | notes |
+|-----|-------------|------|---------|---------|--------------|-------|-------|
+| 1 | 1200 | 0.7 | 2 | 0.492387 | -0.023534 | 4 | NEW_BEST at time |
+| 2 | 1500 | 0.7 | 2 | **0.489633** | -0.024517 | 5 | **BEST P11, SUB_0.49** |
+| 3 | 1200 | 0.65 | 2 | 0.491908 | -0.030214 | 4 | FRAC control |
+
+All experiments: ONLINE_LR_MULT=0.1, ONLINE_WEIGHT_DECAY=1e-5, ONLINE_FREEZE_COMPRESSOR=0
+
+**Phase 11 best**: val_bpb=0.489633 (Exp2: TIME_BUDGET=1500, FRAC=0.7)
+
+### Analysis
+
+**Compute scaling continues monotonically through 1500s.** The full law:
+
+| TIME_BUDGET | val_bpb |  per 300s |
+|-------------|---------|------------|
+| 300s | 0.529464 |  |
+| 600s | 0.506314 | 0.012 |
+| 900s | 0.496073 | 0.010 |
+| 1200s | 0.492387 | 0.004 |
+| 1500s | 0.489633 | 0.003 |
+
+**Deceleration is real.** The per-300s gain halved from 900s1200s and is compressing further. Compute alone at this rate does not straightforwardly reach the frontier (0.471874). Extrapolating naively from the last two steps puts 0.4718 somewhere beyond 5000s, which is not a viable experimental unit.
+
+**FRAC signal at 1200s.** Exp3 (FRAC=0.65) gives 0.491908 vs Exp1 (FRAC=0.7) gives 0.492387  a 0.0005 advantage for shorter prefix. This is real but tiny, and consistent with the pattern seen at all compute levels: marginal FRAC benefit that does not compound.
+
+**ONLINE_LR_MULT is the next unexplored lever.** The current value (0.1, a hard 10 step-down at online phase start) has never been varied in Phase 7+. Given that the online phase is where all the gains come from (see online_bpb_drift values), the learning rate during that phase is plausibly hiding significant performance.
+
+**Verdict**: CONTINUE with two-lane Phase 12.
+
+---
+
+## Phase 12 Spec
+
+**Goal**: (A) Confirm compute scaling continues to 18002100s. (B) First systematic test of ONLINE_LR_MULT as a control variable.
+
+**Fixed base config**: FRAC=0.7, variant=2, ONLINE_WEIGHT_DECAY=1e-5, ONLINE_FREEZE_COMPRESSOR=0
+
+### Lane A  Compute scaling
+
+| Exp | TIME_BUDGET | ONLINE_LR_MULT | Notes |
+|-----|-------------|----------------|-------|
+| 1 | 1800 | 0.1 | +300s beyond best, ~30 min |
+| 2 | 2100 | 0.1 | +600s beyond best, ~35 min |
+
+### Lane B  Online LR sweep (at 1500s, best known budget)
+
+| Exp | TIME_BUDGET | ONLINE_LR_MULT | Notes |
+|-----|-------------|----------------|-------|
+| 3 | 1500 | 0.05 | half current LR |
+| 4 | 1500 | 0.2 | double current LR |
+
+**Rationale**: LR_MULT=0.1 (Exp2, 0.489633) is the current baseline for the LR sweep. If 0.05 or 0.2 beats it at 1500s, that config becomes the new base for Phase 13 compute runs.
+
+**Threshold**: Phase 12 best < 0.488633 (0.001 from Phase 11) to CONTINUE.
+
+### Commands
+
+```bash
+# Lane A  Exp1
+TIME_BUDGET=1800 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.7 ONLINE_LR_MULT=0.1 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p12e1.log
+
+# Lane A  Exp2
+TIME_BUDGET=2100 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.7 ONLINE_LR_MULT=0.1 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p12e2.log
+
+# Lane B  Exp3
+TIME_BUDGET=1500 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.7 ONLINE_LR_MULT=0.05 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p12e3.log
+
+# Lane B  Exp4
+TIME_BUDGET=1500 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.7 ONLINE_LR_MULT=0.2 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p12e4.log
+```
