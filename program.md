@@ -427,3 +427,29 @@ TIME_BUDGET=1500 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.7 ONLINE_LR_MULT=0.
 # Lane B  Exp4
 TIME_BUDGET=1500 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.7 ONLINE_LR_MULT=0.2 ONLINE_WEIGHT_DECAY=1e-5 ONLINE_FREEZE_COMPRESSOR=0 uv run train.py 2>&1 | tee /tmp/p12e4.log
 ```
+
+
+---
+
+### Phase 12 Exp4  Lane B: LR_MULT=0.2
+
+**1. Config**
+```
+TIME_BUDGET=1500  LIVE_STABILITY_VARIANT=2  LIVE_PREFIX_FRAC=0.7
+ONLINE_LR_MULT=0.2  ONLINE_WEIGHT_DECAY=1e-5  ONLINE_FREEZE_COMPRESSOR=0
+```
+**2. Code diff:** none (env-var-only). Base commit `781d839`.
+
+**3. Metrics**
+| metric | value |
+|---|---|
+| val_bpb | 0.489390 |
+| training_seconds | 1500.2 |
+| total_tokens_M | 2219.3 |
+| num_steps | 4233 |
+| epoch | 5 |
+| online_bpb_drift | 0.024024 |
+| grad_norm_prefix_mean | 0.1020 |
+| grad_norm_online_mean | 0.0354 |
+
+**4. Ruling:** LR_MULT=0.2 gives 0.489390 vs baseline 0.1 at 0.489633 (0.000243 better); monotone 0.050.10.2 trend motivates Phase 13 exploration of 0.5 and 1.0.
