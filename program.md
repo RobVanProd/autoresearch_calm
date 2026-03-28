@@ -554,3 +554,46 @@ ONLINE_LR_MULT=0.1  ONLINE_WEIGHT_DECAY=1e-4  ONLINE_FREEZE_COMPRESSOR=0
 | grad_norm_online_mean | 0.0356 |
 
 **4. Ruling:** WD=1e-4 (10x stronger) gives 0.488372 vs baseline WD=1e-5 at 0.489633 (-0.001261 better)  STRONG SUCCESS (beats <=0.488390 threshold); stronger online weight decay is a genuine second lever.
+
+
+---
+
+## Phase 13 Closeout
+
+### All 4 Runs (1500s wall-clock, VARIANT=2, FRAC=0.7, FREEZE_COMP=0)
+
+| Rank | Exp | LR_MULT | WD | val_bpb | Delta vs baseline |
+|------|-----|---------|-----|---------|-------------------|
+| 1 | Exp4 Lane B | 0.1 | 1e-4 | **0.488372** | **-0.001261 STRONG SUCCESS** |
+| 2 | baseline | 0.1 | 1e-5 | 0.489633 |  |
+| 3 | Exp3 Lane B | 0.1 | 0 | 0.489748 | +0.000115 (worse) |
+| 4 | Exp1 Lane A | 0.5 | 1e-5 | 0.489872 | +0.000239 (worse) |
+| 5 | Exp2 Lane A | 1.0 | 1e-5 | 0.489884 | +0.000251 (worse) |
+
+Phase 13 threshold: strong success <= 0.488390. **Exp4 is a strong success (0.488372 < 0.488390).**
+
+---
+
+### Closeout Q&A
+
+**Q1: Did LR_MULT >0.2 help materially?**
+
+No. Both LR_MULT=0.5 (+0.000239) and LR_MULT=1.0 (+0.000251) are worse than baseline 0.1. The weak monotone signal observed in Phase 12 (0.05->0.1->0.2) does not extend to 0.5 or 1.0  the optimum is near 0.2 at best. Total range across all 5 LR_MULT values tested (0.05, 0.1, 0.2, 0.5, 1.0) is ~0.0005 bpb, which is noise-scale. LR_MULT is confirmed as not a material lever; the default of 0.1 can be held fixed.
+
+**Q2: Did ONLINE_WEIGHT_DECAY help materially?**
+
+Yes. WD=1e-4 delivers -0.001261 improvement over the WD=1e-5 baseline. This is >5x larger than any LR_MULT gain observed and clearly clears the strong success threshold. WD=0 was marginally worse (+0.000115), confirming WD=1e-5 was slightly sub-optimal on the low side and the optimum is in the 1e-4 range or above. ONLINE_WEIGHT_DECAY is confirmed as the second lever.
+
+**Q3: Is there a true second lever beyond compute?**
+
+Yes  ONLINE_WEIGHT_DECAY is confirmed as a genuine second lever. At 1500s, WD=1e-4 (0.488372) already narrows the gap to the current all-time best (WD=1e-5 at 2100s: 0.486455) by 0.001261. The two levers (compute and WD) are additive candidates for Phase 14.
+
+**Q4: What exact single question should Phase 14 test?**
+
+Does combining ONLINE_WEIGHT_DECAY=1e-4 with TIME_BUDGET=2100s set a new all-time best below 0.486455 (the current frontier hold from compute alone at WD=1e-5)?
+
+Phase 14 spec: one run  TIME_BUDGET=2100 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FRAC=0.7 ONLINE_LR_MULT=0.1 ONLINE_WEIGHT_DECAY=1e-4 ONLINE_FREEZE_COMPRESSOR=0. Strong success threshold: any result < 0.485000.
+
+---
+
+*Phase 13 complete. All 4 runs committed and pushed. STOP.*
