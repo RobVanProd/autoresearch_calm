@@ -597,3 +597,29 @@ Phase 14 spec: one run  TIME_BUDGET=2100 LIVE_STABILITY_VARIANT=2 LIVE_PREFIX_FR
 ---
 
 *Phase 13 complete. All 4 runs committed and pushed. STOP.*
+
+
+## Phase 14
+
+### Phase 14 Exp1  WD=1e-4 + TIME_BUDGET=2100s (compose both levers)
+
+**1. Config**
+```
+TIME_BUDGET=2100  LIVE_STABILITY_VARIANT=2  LIVE_PREFIX_FRAC=0.7
+ONLINE_LR_MULT=0.1  ONLINE_WEIGHT_DECAY=1e-4  ONLINE_FREEZE_COMPRESSOR=0
+```
+**2. Code diff:** none (env-var-only). Base commit `742e01f`.
+
+**3. Metrics**
+| metric | value |
+|---|---|
+| val_bpb | **0.486263** |
+| training_seconds | 2100.2 |
+| total_tokens_M | 3231.7 |
+| num_steps | 6164 |
+| epoch | 7 |
+| online_bpb_drift | -0.022918 |
+| grad_norm_prefix_mean | 0.1012 |
+| grad_norm_online_mean | 0.0371 |
+
+**4. Ruling:** WD=1e-4 at 2100s gives 0.486263 vs prior all-time best (WD=1e-5, 2100s) of 0.486455 (-0.000192)  REAL SUCCESS; WD composes with compute and establishes a new best. Not a strong success (threshold <0.485000).
