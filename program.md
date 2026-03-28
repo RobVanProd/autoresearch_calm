@@ -530,3 +530,27 @@ ONLINE_LR_MULT=0.1  ONLINE_WEIGHT_DECAY=0  ONLINE_FREEZE_COMPRESSOR=0
 | grad_norm_online_mean | 0.0402 |
 
 **4. Ruling:** WD=0 gives 0.489748 vs baseline WD=1e-5 at 0.489633 (+0.000115 worse)  removing weight decay is a marginal regression, confirming baseline WD=1e-5 is near-optimal.
+
+
+### Phase 13 Exp4  Lane B: ONLINE_WEIGHT_DECAY=1e-4
+
+**1. Config**
+```
+TIME_BUDGET=1500  LIVE_STABILITY_VARIANT=2  LIVE_PREFIX_FRAC=0.7
+ONLINE_LR_MULT=0.1  ONLINE_WEIGHT_DECAY=1e-4  ONLINE_FREEZE_COMPRESSOR=0
+```
+**2. Code diff:** none (env-var-only). Base commit `91f17f7`.
+
+**3. Metrics**
+| metric | value |
+|---|---|
+| val_bpb | **0.488372** |
+| training_seconds | 1500.3 |
+| total_tokens_M | 2317.9 |
+| num_steps | 4421 |
+| epoch | 5 |
+| online_bpb_drift | -0.023650 |
+| grad_norm_prefix_mean | 0.1009 |
+| grad_norm_online_mean | 0.0356 |
+
+**4. Ruling:** WD=1e-4 (10x stronger) gives 0.488372 vs baseline WD=1e-5 at 0.489633 (-0.001261 better)  STRONG SUCCESS (beats <=0.488390 threshold); stronger online weight decay is a genuine second lever.
