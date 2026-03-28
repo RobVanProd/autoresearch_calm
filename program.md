@@ -623,3 +623,50 @@ ONLINE_LR_MULT=0.1  ONLINE_WEIGHT_DECAY=1e-4  ONLINE_FREEZE_COMPRESSOR=0
 | grad_norm_online_mean | 0.0371 |
 
 **4. Ruling:** WD=1e-4 at 2100s gives 0.486263 vs prior all-time best (WD=1e-5, 2100s) of 0.486455 (-0.000192)  REAL SUCCESS; WD composes with compute and establishes a new best. Not a strong success (threshold <0.485000).
+
+
+---
+
+## Phase 14 Exp1 Closeout
+
+### Run Table
+
+| Config | TIME_BUDGET | WD | val_bpb | Delta |
+|--------|-------------|-----|---------|-------|
+| Phase 12 all-time best (prior) | 2100s | 1e-5 | 0.486455 |  |
+| **Phase 14 Exp1 (this run)** | **2100s** | **1e-4** | **0.486263** | **-0.000192** |
+| Phase 13 best | 1500s | 1e-4 | 0.488372 | -0.001261 vs 1500s baseline |
+
+### Comparisons
+
+vs 2100s all-time best (WD=1e-5): **-0.000192** (new best)
+vs Phase 13 WD=1e-4 at 1500s: **-0.002109** (600s of extra compute continues to help at WD=1e-4)
+vs 1500s baseline (WD=1e-5): -0.001370 combined gain from both levers
+
+### Outcome
+
+**WD composes with compute and establishes a new best.**
+
+The second lever (WD=1e-4) does transfer from 1500s to 2100s. The new all-time best is 0.486263.
+
+However, the margin over the prior best is small: -0.000192. This is below the noise floor seen in LR_MULT sweeps (~0.0005) but in the right direction and consistent with the 1500s finding. It passes the real success threshold (<0.486455) but not the strong success threshold (<0.485000).
+
+### What this result does NOT prove
+
+1. **WD=1e-4 is not confirmed as the optimal value.** The WD sweep at 1500s only tested 0, 1e-5, 1e-4. The optimum may lie at 3e-4 or 1e-3  untested at 2100s.
+
+2. **The gain is not confirmed to be statistically robust.** The -0.000192 margin is smaller than the noise range observed in prior LR_MULT experiments (~0.0002-0.0005 bpb). A single run cannot rule out run-to-run variance.
+
+3. **The levers do not add linearly.** WD=1e-4 gave -0.001261 at 1500s, but only -0.000192 more at 2100s on top of the compute gain  suggesting the interaction may be subadditive or that 2100s is a harder baseline to beat.
+
+4. **This does not guarantee further improvement at higher compute.** The scaling law is decelerating; adding more compute (2400s, 2700s) with WD=1e-4 is untested.
+
+### Recommendation for next step
+
+Since this is a real success, the recommended next step is one confirmatory repeat:
+- Same config: TIME_BUDGET=2100, WD=1e-4, all other vars fixed
+- Purpose: confirm the -0.000192 margin is real and not a single-run fluctuation
+- If confirmed: the new WD=1e-4 config becomes the permanent baseline for Phase 15+ and further compute scaling
+- If not confirmed (repeat >= 0.486455): result is inconclusive; move to the WD neighborhood test instead
+
+**Do not start this repeat automatically. Stop and report.**
