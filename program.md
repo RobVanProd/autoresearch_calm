@@ -505,3 +505,28 @@ ONLINE_LR_MULT=1.0  ONLINE_WEIGHT_DECAY=1e-5  ONLINE_FREEZE_COMPRESSOR=0
 | grad_norm_online_mean | 0.0355 |
 
 **4. Ruling:** LR_MULT=1.0 (no step-down) gives 0.489884  worse than baseline 0.1 by +0.000251 and worse than 0.5; Lane A sweep (0.050.10.20.51.0) shows a clear optimum at 0.2 with all other values worse; total LR_MULT range is ~0.0005 bpb, noise-scale, not a material second lever.
+
+---
+
+### Phase 13 Exp3  Lane B: ONLINE_WEIGHT_DECAY=0
+
+**1. Config**
+```
+TIME_BUDGET=1500  LIVE_STABILITY_VARIANT=2  LIVE_PREFIX_FRAC=0.7
+ONLINE_LR_MULT=0.1  ONLINE_WEIGHT_DECAY=0  ONLINE_FREEZE_COMPRESSOR=0
+```
+**2. Code diff:** none (env-var-only). Base commit `17d79cf`.
+
+**3. Metrics**
+| metric | value |
+|---|---|
+| val_bpb | 0.489748 |
+| training_seconds | 1500.3 |
+| total_tokens_M | 2295.9 |
+| num_steps | 4379 |
+| epoch | 5 |
+| online_bpb_drift | -0.024518 |
+| grad_norm_prefix_mean | 0.1006 |
+| grad_norm_online_mean | 0.0402 |
+
+**4. Ruling:** WD=0 gives 0.489748 vs baseline WD=1e-5 at 0.489633 (+0.000115 worse)  removing weight decay is a marginal regression, confirming baseline WD=1e-5 is near-optimal.
