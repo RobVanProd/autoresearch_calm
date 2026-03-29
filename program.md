@@ -670,3 +670,43 @@ Since this is a real success, the recommended next step is one confirmatory repe
 - If not confirmed (repeat >= 0.486455): result is inconclusive; move to the WD neighborhood test instead
 
 **Do not start this repeat automatically. Stop and report.**
+
+## Phase 14 Experiment 2  Statistical Replication of WD=1e-4 at 2100s
+
+**Date:** 2026-03-29
+**Config:** TIME_BUDGET=2100, ONLINE_WEIGHT_DECAY=1e-4, LIVE_STABILITY_VARIANT=2, LIVE_PREFIX_FRAC=0.7, ONLINE_LR_MULT=0.1, ONLINE_FREEZE_COMPRESSOR=0
+**Purpose:** 4 independent runs to determine if Exp1 result (0.486263) is robust or a lucky sample.
+
+### Results
+
+| Run | val_bpb |
+|-----|---------|
+| 1   | 0.486787 |
+| 2   | 0.487469 |
+| 3   | 0.487321 |
+| 4   | 0.487415 |
+| **Mean** | **0.487248** |
+| **Std (sample)** | **0.000313** |
+| **Best** | **0.486787** |
+
+Reference points:
+- Phase 14 Exp1 (single run, prior session): 0.486263
+- Prior ATB (WD=1e-5, 2100s): 0.486455
+
+### Outcome
+
+**WD=1e-4 does NOT reliably beat WD=1e-5 at 2100s.**
+
+All 4 independent runs produced val_bpb above the prior ATB of 0.486455. The mean (0.487248) is 0.000793 worse than the ATB. Even the best run (0.486787) is 0.000332 worse than the ATB.
+
+The original Phase 14 Exp1 result of 0.486263 was a statistical outlier  approximately 3.1 standard deviations below the observed mean. It does not represent the true expected performance of this configuration.
+
+### Ruling
+
+**REJECT WD=1e-4 as an improvement over WD=1e-5 at 2100s.**
+
+The prior all-time best of **0.486455** (WD=1e-5, 2100s) stands as the official baseline for Phase 15+.
+
+### Recommendation for next step
+
+Explore the WD neighborhood more carefully: test WD values between 1e-5 and 1e-4 (e.g. 3e-5, 5e-5) at 2100s with multiple seeds, or proceed to compute scaling with the confirmed WD=1e-5 baseline.
