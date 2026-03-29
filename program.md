@@ -756,3 +756,13 @@ val_bpb: 0.484684
 Prior ATB: 0.484844 (2700s, Phase 15 Run 3)
 Result: probe beats ATB by 0.000160  proceeding to Exp2 replication x3
 Config: WD=1e-5, FRAC=0.7, variant=2, FREEZE=0, LR_MULT=0.1
+
+
+## Phase 16 Exp2  3600s replication (4 runs, WD=1e-5)
+
+Runs: 0.484684, 0.484924, 0.484617, 0.485054
+Mean: 0.484820, Std: 0.000204, Best: 0.484617
+All 4 runs below prior ATB of 0.484844.
+
+RULING: TIME_BUDGET=3600s CONFIRMED. New ATB = 0.484617 (Run 3).
+Config: WD=1e-5, FRAC=0.7, variant=2, FREEZE=0, LR_MULT=0.1
