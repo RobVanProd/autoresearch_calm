@@ -710,3 +710,31 @@ The prior all-time best of **0.486455** (WD=1e-5, 2100s) stands as the official 
 ### Recommendation for next step
 
 Explore the WD neighborhood more carefully: test WD values between 1e-5 and 1e-4 (e.g. 3e-5, 5e-5) at 2100s with multiple seeds, or proceed to compute scaling with the confirmed WD=1e-5 baseline.
+
+## Phase 15 Experiment 1  Compute Scaling: 2700s with WD=1e-5
+Date: 2026-03-29
+Config: TIME_BUDGET=2700, ONLINE_WEIGHT_DECAY=1e-5, LIVE_STABILITY_VARIANT=2,
+        LIVE_PREFIX_FRAC=0.7, ONLINE_LR_MULT=0.1, ONLINE_FREEZE_COMPRESSOR=0
+Result: val_bpb=0.486252 (single run, step 6968, 2700.2s training)
+Prior ATB: 0.486455 (WD=1e-5, 2100s)
+Delta: -0.000203 (improvement over 2100s baseline)
+
+### Scaling curve update
+| TIME_BUDGET | val_bpb |
+|-------------|---------|
+| 300s  | 0.529464 |
+| 600s  | 0.506314 |
+| 900s  | 0.496073 |
+| 1200s | 0.492387 |
+| 1500s | 0.489633 |
+| 1800s | 0.487938 |
+| 2100s | 0.486455 |
+| 2700s | 0.486252 (this run, single probe) |
+
+### Assessment
+Scaling continues to yield marginal improvements. Delta 2100s2700s = -0.000203, which is
+below the run-to-run std observed in Phase 14 Exp2 (~0.000313). Result is tentative 
+needs replication to confirm it is a genuine improvement vs. lucky single run.
+
+### Next step
+Run 2700s 3 more to establish mean/std, OR continue scaling to 3000s/3600s first.
