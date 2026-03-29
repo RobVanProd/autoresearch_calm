@@ -748,3 +748,11 @@ All 4 runs below prior ATB of 0.486455.
 
 RULING: TIME_BUDGET=2700s CONFIRMED. New ATB = 0.484844 (Run 3).
 Config: WD=1e-5, FRAC=0.7, variant=2, FREEZE=0, LR_MULT=0.1
+
+
+## Phase 16 Exp1  3600s probe (WD=1e-5)
+
+val_bpb: 0.484684
+Prior ATB: 0.484844 (2700s, Phase 15 Run 3)
+Result: probe beats ATB by 0.000160  proceeding to Exp2 replication x3
+Config: WD=1e-5, FRAC=0.7, variant=2, FREEZE=0, LR_MULT=0.1
