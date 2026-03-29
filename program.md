@@ -738,3 +738,13 @@ needs replication to confirm it is a genuine improvement vs. lucky single run.
 
 ### Next step
 Run 2700s 3 more to establish mean/std, OR continue scaling to 3000s/3600s first.
+
+
+## Phase 15 Exp2  2700s replication (4 runs, WD=1e-5)
+
+Runs: 0.486252, 0.485197, 0.484844, 0.485704
+Mean: 0.485499, Std: 0.000614, Best: 0.484844
+All 4 runs below prior ATB of 0.486455.
+
+RULING: TIME_BUDGET=2700s CONFIRMED. New ATB = 0.484844 (Run 3).
+Config: WD=1e-5, FRAC=0.7, variant=2, FREEZE=0, LR_MULT=0.1
