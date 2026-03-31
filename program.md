@@ -783,3 +783,10 @@ Prior ATB: 0.484617 (3600s, Phase 16 Run 3)
 Result: Exp2 mean BEATS ATB by 0.000034  NEW ATB = 0.484583 at 4500s
 Config: WD=1e-5, FRAC=0.7, variant=2, FREEZE=0, LR_MULT=0.1
 Next: Phase 18  test TIME_BUDGET=6000s
+
+## Phase 18 Exp1  6000s probe (WD=1e-5)
+
+val_bpb: 0.484553
+Prior ATB: 0.484583 (4500s, Phase 17 Exp2 mean)
+Result: probe beats ATB by 0.000030  proceeding to Exp2 replication x3
+Config: WD=1e-5, FRAC=0.7, variant=2, FREEZE=0, LR_MULT=0.1
