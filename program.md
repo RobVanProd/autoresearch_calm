@@ -800,3 +800,12 @@ Result: Exp2 mean 0.484616 EXCEEDS ATB by 0.000033 (worse)  REJECTED
 ATB remains: 0.484583 at 4500s
 Config: WD=1e-5, FRAC=0.7, variant=2, FREEZE=0, LR_MULT=0.1
 Next: compute scaling plateau reached at 4500s  consider other axes
+
+## Phase 19 Exp1  LIVE_PREFIX_FRAC=0.6 probe
+
+val_bpb: 0.485516
+Prior ATB: 0.484583 (4500s, FRAC=0.7)
+Result: probe WORSE than ATB by 0.000933  REJECTED at probe, no Exp2
+Config: TIME_BUDGET=4500, WD=1e-5, FRAC=0.6, variant=2, FREEZE=0, LR_MULT=0.1
+Conclusion: FRAC=0.7 is better than FRAC=0.6; optimal prefix fraction is 0.7
+Next: Phase 20  try ONLINE_WEIGHT_DECAY=0 (no decay)
