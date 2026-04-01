@@ -809,3 +809,15 @@ Result: probe WORSE than ATB by 0.000933  REJECTED at probe, no Exp2
 Config: TIME_BUDGET=4500, WD=1e-5, FRAC=0.6, variant=2, FREEZE=0, LR_MULT=0.1
 Conclusion: FRAC=0.7 is better than FRAC=0.6; optimal prefix fraction is 0.7
 Next: Phase 20  try ONLINE_WEIGHT_DECAY=0 (no decay)
+
+## Phase 20 Exp1  ONLINE_WEIGHT_DECAY=0 probe
+
+**Date:** 2026-04-01
+**Config:** TIME_BUDGET=4500, LIVE_PREFIX_FRAC=0.7, ONLINE_FREEZE_COMPRESSOR=0, ONLINE_WEIGHT_DECAY=0, LIVE_STABILITY_VARIANT=2, ONLINE_LR_MULT=0.1
+**Command:** TIME_BUDGET=4500 LIVE_PREFIX_FRAC=0.7 ONLINE_FREEZE_COMPRESSOR=0 ONLINE_WEIGHT_DECAY=0 uv run train.py 2>&1 | tee run_phase20_1.log
+
+**Result:** val_bpb=0.484219
+**ATB at entry:** 0.484583
+**Delta:** -0.000364 (BEATS ATB)
+
+**Decision:** BEATS ATB by 0.000364  proceed to Exp2 (3 replications)
